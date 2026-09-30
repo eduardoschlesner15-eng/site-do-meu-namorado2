@@ -1,0 +1,3 @@
+Nome do Produto: Luminária N-1 Style
+Categoria: Luminária
+Descrição: Uma luminária com estética moderna e traços marcantes, perfeita para iluminação de mesa ou setups cyberpunk. Renderização de malha de alta qualidade. Compatível com impressão 3D (necessita suporte).
