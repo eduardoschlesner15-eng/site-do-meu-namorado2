@@ -181,8 +181,14 @@ export default function Header() {
                 >
                   {currentUser ? `Minha Conta (${currentUser.nome.split(" ")[0]})` : "Minha Conta / Entrar"}
                 </button>
-                <a href="#" className="hover:text-black">Rastrear Pedido</a>
-                <a href="#" className="hover:text-black">Central de Ajuda</a>
+                <a 
+                  href="https://wa.me/5555999576823?text=Ol%C3%A1!%20Gostaria%20de%20tirar%20uma%20d%C3%BAvida%20sobre%20um%20pedido%20ou%20produto." 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="hover:text-[#cc0000] flex items-center gap-1.5 text-emerald-700 font-bold"
+                >
+                  <span>💬</span> WhatsApp: (55) 99957-6823
+                </a>
               </div>
             </div>
 

@@ -4,8 +4,8 @@
  */
 
 // Número de WhatsApp da Loja / Vendedor (DDI + DDD + Número)
-// Altere este número para o seu WhatsApp oficial para receber os alertas
-export const STORE_WHATSAPP_NUMBER = "5551999999999"; 
+// Número oficial configurado: +55 (55) 99957-6823
+export const STORE_WHATSAPP_NUMBER = "5555999576823"; 
 
 export type OrderNotificationData = {
   id: string;
