@@ -21,6 +21,11 @@ import {
   generateSellerOrderMessage, 
   getWhatsAppUrl 
 } from "@/lib/whatsapp";
+import { 
+  generatePixCopiaECola, 
+  getPixQrCodeUrl, 
+  PIX_CONFIG 
+} from "@/lib/pix";
 
 type Props = {
   productName: string;
@@ -68,6 +73,11 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   const [processingMessage, setProcessingMessage] = useState("");
   const [paymentError, setPaymentError] = useState("");
 
+  // Estado do Pix Dinâmico com expiração de 5 minutos (300s)
+  const [pixTimeLeft, setPixTimeLeft] = useState(300);
+  const [pixTxId, setPixTxId] = useState(`ORD${Math.floor(100000 + Math.random() * 900000)}`);
+  const [pixPayload, setPixPayload] = useState("");
+
   const numeroInputRef = useRef<HTMLInputElement>(null);
 
   // Carrega dados salvos e verifica retorno do Mercado Pago
@@ -107,6 +117,42 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   const shippingCost = shippingMethod === "sedex" ? 24.9 : 14.9;
   const pixDiscount = paymentMethod === "pix" ? basePriceNum * 0.05 : 0;
   const finalTotal = Math.max(0, basePriceNum + shippingCost - pixDiscount);
+
+  // Gera o Pix Dinâmico BRCode com o valor exato da compra
+  useEffect(() => {
+    if (step === "payment" && paymentMethod === "pix" && finalTotal > 0) {
+      const code = generatePixCopiaECola({
+        amount: finalTotal,
+        txid: pixTxId,
+      });
+      setPixPayload(code);
+    }
+  }, [step, paymentMethod, finalTotal, pixTxId]);
+
+  // Contagem regressiva de 5 minutos (300 segundos)
+  useEffect(() => {
+    if (step !== "payment" || paymentMethod !== "pix") return;
+    if (pixTimeLeft <= 0) return;
+
+    const interval = setInterval(() => {
+      setPixTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [step, paymentMethod, pixTimeLeft]);
+
+  const handleGenerateNewPix = () => {
+    const newTxId = `ORD${Math.floor(100000 + Math.random() * 900000)}`;
+    setPixTxId(newTxId);
+    setPixTimeLeft(300); // Reseta para 5 minutos
+    setCopiedPix(false);
+  };
+
+  const pixMinutes = Math.floor(pixTimeLeft / 60);
+  const pixSeconds = pixTimeLeft % 60;
+  const formattedTimer = `${String(pixMinutes).padStart(2, "0")}:${String(pixSeconds).padStart(2, "0")}`;
+  const timerPercent = (pixTimeLeft / 300) * 100;
+  const isPixExpired = pixTimeLeft <= 0;
 
   // Manipulação de inputs com máscaras
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -361,11 +407,9 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     setStep("success");
   };
 
-  const pixKey = "00020126580014BR.GOV.BCB.PIX0136alojadomeunamorado@pix.com.br520400005303986540510.005802BR5925A LOJA DO MEU NAMORADO6009SAO PAULO62070503***6304E8A9";
-  const pixKeyEmail = "alojadomeunamorado@pix.com.br";
-
   const handleCopyPix = () => {
-    navigator.clipboard.writeText(pixKey);
+    if (!pixPayload) return;
+    navigator.clipboard.writeText(pixPayload);
     setCopiedPix(true);
     setTimeout(() => setCopiedPix(false), 3000);
   };
@@ -821,54 +865,107 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             </button>
           </div>
 
-          {/* ================= ABA 1: PIX DIRETO PARA MINHA CONTA ================= */}
+          {/* ================= ABA 1: PIX DINÂMICO (EXPIRA EM 5 MIN) ================= */}
           {paymentMethod === "pix" && (
-            <div className="flex flex-col items-center text-center gap-6 py-2 animate-fadeIn max-w-xl mx-auto w-full">
+            <div className="flex flex-col items-center text-center gap-5 py-2 animate-fadeIn max-w-xl mx-auto w-full">
               <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
                 <span>✓</span>
-                <span>Pix Direto na Minha Conta • Aprovação Imediata • 5% de Desconto</span>
+                <span>Pix Dinâmico Banco Central • 5% de Desconto • Código Único</span>
               </div>
 
-              {/* QR Code */}
-              <div className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-sm shadow-xs flex flex-col items-center">
-                <svg className="w-48 h-48" viewBox="0 0 100 100" fill="currentColor">
-                  <rect width="100" height="100" fill="white" />
-                  <rect x="10" y="10" width="25" height="25" fill="black" />
-                  <rect x="15" y="15" width="15" height="15" fill="white" />
-                  <rect x="18" y="18" width="9" height="9" fill="black" />
+              {/* CARD DO CRONÔMETRO DE 5 MINUTOS */}
+              <div className="w-full bg-white border clean-border p-4 rounded-xs shadow-xs flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${isPixExpired ? "bg-red-500" : "bg-emerald-500 animate-pulse"}`}></span>
+                    <span className="text-xs font-black uppercase text-gray-700 tracking-wider">
+                      {isPixExpired ? "Status do Código" : "Tempo Restante para Pagar"}
+                    </span>
+                  </div>
+                  <div className={`px-2.5 py-1 rounded-xs font-mono font-black text-xs ${
+                    isPixExpired 
+                      ? "bg-red-100 text-red-700 border border-red-200" 
+                      : pixTimeLeft < 60 
+                        ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse" 
+                        : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                  }`}>
+                    ⏱️ {isPixExpired ? "EXPIRADO" : formattedTimer}
+                  </div>
+                </div>
 
-                  <rect x="65" y="10" width="25" height="25" fill="black" />
-                  <rect x="70" y="15" width="15" height="15" fill="white" />
-                  <rect x="73" y="18" width="9" height="9" fill="black" />
-
-                  <rect x="10" y="65" width="25" height="25" fill="black" />
-                  <rect x="15" y="70" width="15" height="15" fill="white" />
-                  <rect x="18" y="73" width="9" height="9" fill="black" />
-
-                  <rect x="42" y="15" width="6" height="6" fill="black" />
-                  <rect x="52" y="22" width="6" height="6" fill="black" />
-                  <rect x="40" y="38" width="8" height="8" fill="black" />
-                  <rect x="60" y="45" width="8" height="8" fill="black" />
-                  <rect x="45" y="55" width="12" height="6" fill="black" />
-                  <rect x="65" y="65" width="10" height="10" fill="black" />
-                  <rect x="78" y="78" width="8" height="8" fill="black" />
-                  <rect x="40" y="75" width="10" height="10" fill="black" />
-                </svg>
-                <span className="text-[11px] font-bold text-gray-500 uppercase mt-2">
-                  Abra o aplicativo do seu banco e escaneie o código
-                </span>
+                {/* Barra de Progresso visual */}
+                <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-1000 ${
+                      isPixExpired 
+                        ? "bg-red-500 w-0" 
+                        : pixTimeLeft < 60 
+                          ? "bg-amber-500" 
+                          : "bg-emerald-500"
+                    }`}
+                    style={{ width: `${timerPercent}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase">
+                  <span>Início: 05:00 min</span>
+                  <span>{isPixExpired ? "Expirou após 5 min" : "Expira em 5 minutos"}</span>
+                </div>
               </div>
 
-              {/* Chave E-mail Direta */}
+              {/* QR CODE DINÂMICO OU AVISO DE EXPIRADO */}
+              {isPixExpired ? (
+                <div className="w-full p-8 bg-red-50/50 border-2 border-dashed border-red-300 rounded-xs flex flex-col items-center gap-3">
+                  <span className="text-4xl">⚠️</span>
+                  <h4 className="font-black text-sm uppercase text-red-700 tracking-wider">
+                    Código Pix Expirado (5 Minutos)
+                  </h4>
+                  <p className="text-xs text-gray-600 max-w-sm">
+                    Por motivos de segurança bancária, este código expirou. Clique no botão abaixo para gerar um novo código Pix atualizado com mais 5 minutos de validade.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateNewPix}
+                    className="mt-2 bg-black hover:bg-[#cc0000] text-white px-6 py-3 font-black text-xs uppercase tracking-wider transition-colors rounded-xs shadow-md cursor-pointer flex items-center gap-2"
+                  >
+                    <span>🔄</span>
+                    <span>Gerar Novo Código Pix (5 min)</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-sm shadow-xs flex flex-col items-center relative">
+                  {/* QR Code Dinâmico Real */}
+                  {pixPayload ? (
+                    <img 
+                      src={getPixQrCodeUrl(pixPayload)}
+                      alt="QR Code Pix Dinâmico Banco Central"
+                      className="w-48 h-48 rounded-xs"
+                      width={192}
+                      height={192}
+                    />
+                  ) : (
+                    <div className="w-48 h-48 bg-gray-100 flex items-center justify-center text-xs text-gray-400">
+                      Gerando QR Code Pix...
+                    </div>
+                  )}
+                  <span className="text-[11px] font-bold text-gray-500 uppercase mt-2">
+                    Aponte a câmera do aplicativo do seu banco
+                  </span>
+                </div>
+              )}
+
+              {/* Chave Pix Cadastrada */}
               <div className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xs text-left flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
-                  <span className="text-[10px] font-bold text-gray-500 uppercase block">Chave Pix Direta (E-mail):</span>
-                  <span className="font-mono font-bold text-sm text-black">{pixKeyEmail}</span>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase block">
+                    Chave Pix Oficial da Loja ({PIX_CONFIG.tipoChave}):
+                  </span>
+                  <span className="font-mono font-bold text-sm text-black">{PIX_CONFIG.chaveFormatada}</span>
+                  <span className="text-[10px] text-gray-500 block">Beneficiário: {PIX_CONFIG.beneficiario}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(pixKeyEmail);
+                    navigator.clipboard.writeText(PIX_CONFIG.chave);
                     setCopiedPix(true);
                     setTimeout(() => setCopiedPix(false), 2500);
                   }}
@@ -878,44 +975,61 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 </button>
               </div>
 
-              {/* Pix Copia e Cola Completo */}
-              <div className="w-full flex flex-col gap-1.5 text-left">
-                <span className="text-xs font-bold text-gray-700 uppercase">Ou use o Pix Copia e Cola:</span>
-                <div className="flex border border-gray-300 rounded-xs overflow-hidden">
-                  <input 
-                    type="text" 
-                    readOnly 
-                    value={pixKey} 
-                    className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate font-mono"
-                  />
-                  <button 
-                    type="button"
-                    onClick={handleCopyPix}
-                    className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
-                  >
-                    {copiedPix ? "Copiado! ✓" : "Copiar Código"}
-                  </button>
+              {/* Pix Copia e Cola Completo Dinâmico */}
+              {!isPixExpired && pixPayload && (
+                <div className="w-full flex flex-col gap-1.5 text-left">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-gray-700 uppercase">
+                      Código Pix Copia e Cola (Valor R$ {finalTotal.toFixed(2).replace(".", ",")}):
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold uppercase font-mono">
+                      TxID: {pixTxId}
+                    </span>
+                  </div>
+                  <div className="flex border border-gray-300 rounded-xs overflow-hidden">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={pixPayload} 
+                      className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate font-mono"
+                    />
+                    <button 
+                      type="button"
+                      onClick={handleCopyPix}
+                      className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
+                    >
+                      {copiedPix ? "Copiado! ✓" : "Copiar Código"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Passo a Passo */}
               <div className="w-full bg-gray-50 border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
-                <span className="font-bold text-black uppercase text-[11px]">Como funciona o pagamento via PIX:</span>
+                <span className="font-bold text-black uppercase text-[11px]">Como pagar via Pix:</span>
                 <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                  <li>Abra o app do seu banco e acerte a opção <strong>PIX</strong>.</li>
-                  <li>Escaneie o QR Code acima ou cole o código Copia e Cola.</li>
-                  <li>Confirme o valor exato de <strong className="text-black">R$ {finalTotal.toFixed(2).replace(".", ",")}</strong>.</li>
-                  <li>Após transferir, clique no botão verde abaixo para confirmar seu pedido e iniciar o envio!</li>
+                  <li>Abra o aplicativo de qualquer banco (Nubank, Inter, Itaú, BB, etc.).</li>
+                  <li>Escolha <strong>Pix &gt; Ler QR Code</strong> ou <strong>Pix Copia e Cola</strong>.</li>
+                  <li>O valor exato de <strong className="text-black">R$ {finalTotal.toFixed(2).replace(".", ",")}</strong> (com 5% de desconto) já virá preenchido.</li>
+                  <li>Realize o pagamento antes do cronômetro de 5 minutos expirar e confirme abaixo!</li>
                 </ol>
               </div>
 
               <button 
                 type="button"
                 onClick={handlePayWithPix}
-                disabled={isProcessingPayment}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer"
+                disabled={isProcessingPayment || isPixExpired}
+                className={`w-full py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer ${
+                  isPixExpired 
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
               >
-                {isProcessingPayment ? "Confirmando recebimento..." : "Confirmar Pagamento Realizado ✓"}
+                {isProcessingPayment 
+                  ? "Confirmando recebimento..." 
+                  : isPixExpired 
+                    ? "Código Expirado - Gere um Novo Código" 
+                    : "Confirmar Pagamento Realizado ✓"}
               </button>
             </div>
           )}
