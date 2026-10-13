@@ -2,17 +2,7 @@
 
 import { motion } from "framer-motion";
 import ModelViewer from "./ModelViewer";
-import CheckoutFlow from "./CheckoutFlow";
-
-type Product = {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  fileUrl: string;
-  fileType: "stl" | "fbx";
-  compat: string;
-};
+import { Product } from "@/lib/data";
 
 export default function ProductSection({ product, index }: { product: Product; index: number }) {
   const isEven = index % 2 === 0;
