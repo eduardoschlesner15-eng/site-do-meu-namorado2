@@ -9,6 +9,7 @@ export type PreferenceData = {
   title: string;
   price: number;
   quantity?: number;
+  productSlug?: string;
   payer: {
     nome: string;
     email: string;
@@ -24,6 +25,11 @@ export type PreferenceData = {
 
 export async function createMercadoPagoPreference(data: PreferenceData): Promise<{ init_point: string } | null> {
   try {
+    const currentBaseUrl = typeof window !== "undefined" && window.location.origin 
+      ? window.location.origin 
+      : "https://site-do-meu-nnamnorado.web.app";
+    const slug = data.productSlug || "cigarreira-corta-tapa";
+
     const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
       headers: {
@@ -65,9 +71,9 @@ export async function createMercadoPagoPreference(data: PreferenceData): Promise
           },
         },
         back_urls: {
-          success: "https://site-do-meu-nnamnorado.web.app/checkout/cigarreira-corta-tapa?status=approved",
-          failure: "https://site-do-meu-nnamnorado.web.app/checkout/cigarreira-corta-tapa?status=failure",
-          pending: "https://site-do-meu-nnamnorado.web.app/checkout/cigarreira-corta-tapa?status=pending",
+          success: `${currentBaseUrl}/checkout/${slug}?status=approved`,
+          failure: `${currentBaseUrl}/checkout/${slug}?status=failure`,
+          pending: `${currentBaseUrl}/checkout/${slug}?status=pending`,
         },
         auto_return: "approved",
       }),

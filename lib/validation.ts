@@ -81,10 +81,136 @@ export function isValidCEP(cep: string): boolean {
   return digits.length === 8;
 }
 
+const DISPOSABLE_OR_FAKE_DOMAINS = new Set([
+  "teste.com",
+  "teste.com.br",
+  "test.com",
+  "fake.com",
+  "falso.com",
+  "exemplo.com",
+  "example.com",
+  "example.org",
+  "example.net",
+  "asdf.com",
+  "asdfg.com",
+  "qwerty.com",
+  "email.com",
+  "meuemail.com",
+  "qualquer.com",
+  "naotem.com",
+  "naoexiste.com",
+  "sememail.com",
+  "nenhum.com",
+  "tempmail.com",
+  "temp-mail.org",
+  "10minutemail.com",
+  "mailinator.com",
+  "guerrillamail.com",
+  "throwawaymail.com",
+  "yopmail.com",
+  "sharklasers.com",
+  "dispostable.com",
+  "getairmail.com",
+  "trashmail.com",
+  "nada.ltd",
+  "mohmal.com",
+  "burnermail.io",
+  "xyz.com",
+  "abc.com",
+  "123.com",
+]);
+
+const FAKE_USERNAMES = new Set([
+  "teste",
+  "test",
+  "testing",
+  "fake",
+  "falso",
+  "asdf",
+  "asdfgh",
+  "qwerty",
+  "123456",
+  "12345",
+  "123",
+  "abc",
+  "naotem",
+  "sememail",
+  "nenhum",
+  "usuario",
+  "comprador",
+  "cliente",
+  "exemplo",
+  "example",
+  "admin",
+  "root",
+  "null",
+  "undefined",
+  "nobody",
+]);
+
+export function validateEmailStrict(email: string): { isValid: boolean; error?: string } {
+  const clean = (email || "").trim().toLowerCase();
+  
+  if (!clean) {
+    return { isValid: false, error: "Informe seu e-mail." };
+  }
+
+  // Regex estrita de formato
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(clean)) {
+    return { isValid: false, error: "Formato de e-mail inválido (ex: seunome@gmail.com)." };
+  }
+
+  const parts = clean.split("@");
+  if (parts.length !== 2) {
+    return { isValid: false, error: "E-mail inválido." };
+  }
+
+  const [user, domain] = parts;
+
+  // Nome de usuário
+  if (user.length < 2) {
+    return { isValid: false, error: "O nome antes do @ deve ter pelo menos 2 caracteres." };
+  }
+
+  // Bloqueio de usernames falsos ou padrão repetitivo (ex: aaaaa, 1111)
+  if (FAKE_USERNAMES.has(user) || /^(.)\1{2,}$/.test(user)) {
+    return { isValid: false, error: "E-mail de teste ou falso não permitido. Digite seu e-mail real." };
+  }
+
+  // Bloqueio de domínios descartáveis ou conhecidamente falsos
+  if (DISPOSABLE_OR_FAKE_DOMAINS.has(domain)) {
+    return { isValid: false, error: "E-mails temporários, de teste (@teste.com) ou falsos não são aceitos." };
+  }
+
+  // Verificação de estrutura de domínio
+  const domainParts = domain.split(".");
+  if (domainParts.length < 2) {
+    return { isValid: false, error: "O domínio do e-mail deve ter uma extensão válida (ex: .com ou .com.br)." };
+  }
+
+  const tld = domainParts[domainParts.length - 1];
+  if (tld.length < 2 || !/^[a-z]+$/.test(tld)) {
+    return { isValid: false, error: "Extensão de domínio do e-mail inválida (ex: .com, .com.br)." };
+  }
+
+  // Typos conhecidos em provedores populares
+  if (domain === "gmai.com" || domain === "gamil.com" || domain === "gmial.com") {
+    return { isValid: false, error: "Você quis dizer @gmail.com? Verifique o domínio digitado." };
+  }
+  if (domain === "hotmial.com" || domain === "hotmai.com") {
+    return { isValid: false, error: "Você quis dizer @hotmail.com? Verifique o domínio digitado." };
+  }
+  if (domain === "outlok.com") {
+    return { isValid: false, error: "Você quis dizer @outlook.com? Verifique o domínio digitado." };
+  }
+
+  return { isValid: true };
+}
+
 // Valida formato de E-mail
 export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  return emailRegex.test(email.trim());
+  return validateEmailStrict(email).isValid;
 }
 
 // Formata Cartão de Crédito em blocos de 4 dígitos

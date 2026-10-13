@@ -36,7 +36,7 @@ export type Order = {
   frete: number;
   total: number;
   shippingMethod: string;
-  paymentMethod: "PIX" | "CARTAO" | "BOLETO";
+  paymentMethod: "PIX" | "CARTAO" | "BOLETO" | "PAYPAL";
   user: UserProfile;
   status: "APROVADO" | "AGUARDANDO_PAGAMENTO" | "ENVIADO";
 };

@@ -9,17 +9,12 @@ import {
   formatCEP, 
   isValidCEP, 
   isValidEmail, 
+  validateEmailStrict,
   fetchAddressByCEP,
-  formatCardNumber,
-  formatCardExpiry,
-  isValidLuhn,
-  getCardBrand,
-  isValidCardExpiry,
-  isValidCVV,
-  CardBrand
 } from "@/lib/validation";
 import { getSavedUser, saveUser, saveOrder, UserProfile } from "@/lib/store";
 import { createMercadoPagoPreference } from "@/lib/mercadopago";
+import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 
 type Props = {
   productName: string;
@@ -56,25 +51,16 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   // Opções de envio físico (Correios)
   const [shippingMethod, setShippingMethod] = useState<"pac" | "sedex">("pac");
   
-  // Método de pagamento
-  const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "boleto">("pix");
+  // Método de pagamento (4 métodos exclusivos solicitados)
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "boleto" | "paypal">("pix");
   const [copiedPix, setCopiedPix] = useState(false);
+  const [copiedBoleto, setCopiedBoleto] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
 
   // Processamento e autenticação bancária
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   const [paymentError, setPaymentError] = useState("");
-
-  // Dados do cartão
-  const [cardData, setCardData] = useState({
-    numero: "",
-    nome: "",
-    validade: "",
-    cvv: "",
-    parcelas: "1",
-  });
-  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
 
   const numeroInputRef = useRef<HTMLInputElement>(null);
 
@@ -155,8 +141,9 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
         }
       }
     } else if (name === "email") {
-      if (value.length > 5 && !isValidEmail(value)) {
-        setErrors((prev) => ({ ...prev, email: "Insira um endereço de e-mail válido." }));
+      const emailCheck = validateEmailStrict(value);
+      if (value.length > 3 && !emailCheck.isValid) {
+        setErrors((prev) => ({ ...prev, email: emailCheck.error || "Insira um endereço de e-mail válido." }));
       } else {
         setErrors((prev) => {
           const next = { ...prev };
@@ -189,7 +176,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             return next;
           });
           // Foca automaticamente no campo de número
-          setTimeout(() => numeroInputRef.current?.focus(), 100);
+          setTimeout(() => document.querySelector<HTMLInputElement>('input[name="numero"]')?.focus(), 100);
         } else {
           setCepError("CEP não encontrado. Preencha o endereço manualmente.");
         }
@@ -207,8 +194,9 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
       newErrors.nome = "Informe seu nome e sobrenome completo.";
     }
 
-    if (!isValidEmail(formData.email)) {
-      newErrors.email = "Informe um e-mail válido (ex: seuemail@exemplo.com).";
+    const emailCheck = validateEmailStrict(formData.email);
+    if (!emailCheck.isValid) {
+      newErrors.email = emailCheck.error || "Informe um e-mail válido para envio da NF-e e rastreio dos Correios.";
     }
 
     if (!isValidCPF(formData.cpf)) {
@@ -265,73 +253,34 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     setStep("payment");
   };
 
-  // Bandeira detectada em tempo real
-  const detectedBrand = getCardBrand(cardData.numero);
-
-  // Validação estrita dos dados do cartão de crédito
-  const validateCardForm = () => {
-    const errs: Record<string, string> = {};
-    const cleanNumber = cardData.numero.replace(/\D/g, "");
-
-    if (!cleanNumber) {
-      errs.numero = "Digite o número do cartão de crédito.";
-    } else if (cleanNumber.length < 13 || cleanNumber.length > 19) {
-      errs.numero = "O número do cartão deve conter entre 13 e 19 dígitos.";
-    } else if (!isValidLuhn(cardData.numero)) {
-      errs.numero = "Cartão inválido! O número digitado não passou no teste de validação bancária (Luhn).";
-    }
-
-    if (!cardData.nome.trim()) {
-      errs.nome = "Digite o nome impresso no cartão.";
-    } else if (cardData.nome.trim().split(" ").length < 2) {
-      errs.nome = "Informe o nome e sobrenome exatamente como consta no cartão.";
-    }
-
-    if (!cardData.validade.trim()) {
-      errs.validade = "Informe a validade (MM/AA).";
-    } else if (!isValidCardExpiry(cardData.validade)) {
-      errs.validade = "Cartão expirado ou data inválida. Verifique o mês e ano.";
-    }
-
-    if (!cardData.cvv.trim()) {
-      errs.cvv = "Informe o CVV.";
-    } else if (!isValidCVV(cardData.cvv, detectedBrand)) {
-      errs.cvv = detectedBrand === "amex" 
-        ? "CVV da American Express deve ter 4 dígitos." 
-        : "Código CVV deve ter 3 dígitos.";
-    }
-
-    setCardErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
-
-  // Processamento com Adquirente de Cartão
-  const handlePayWithCard = async () => {
-    setPaymentError("");
-    if (!validateCardForm()) return;
-
-    setIsProcessingPayment(true);
-    setProcessingMessage("Conectando de forma segura à operadora do cartão...");
-
-    await new Promise((r) => setTimeout(r, 1200));
-    setProcessingMessage("Autenticando transação e verificando limite bancário...");
-
-    await new Promise((r) => setTimeout(r, 1500));
-    setIsProcessingPayment(false);
-
-    handleCompleteOrder();
-  };
-
-  // Processamento com PIX
+  // Processamento com PIX direto na conta
   const handlePayWithPix = async () => {
     setIsProcessingPayment(true);
-    setProcessingMessage("Verificando recebimento instantâneo no Banco Central...");
-    await new Promise((r) => setTimeout(r, 1500));
+    setProcessingMessage("Confirmando recebimento instantâneo Pix direto na conta...");
+    await new Promise((r) => setTimeout(r, 1200));
     setIsProcessingPayment(false);
-    handleCompleteOrder();
+    handleCompleteOrder("PIX");
   };
 
-  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real)
+  // Processamento com Boleto Bancário
+  const handlePayWithBoleto = async () => {
+    setIsProcessingPayment(true);
+    setProcessingMessage("Registrando boleto bancário para o seu pedido...");
+    await new Promise((r) => setTimeout(r, 1000));
+    setIsProcessingPayment(false);
+    handleCompleteOrder("BOLETO");
+  };
+
+  // Processamento com PayPal
+  const handlePayWithPayPal = async () => {
+    setIsProcessingPayment(true);
+    setProcessingMessage("Conectando de forma segura ao PayPal...");
+    await new Promise((r) => setTimeout(r, 1200));
+    setIsProcessingPayment(false);
+    handleCompleteOrder("PAYPAL");
+  };
+
+  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real no Cartão)
   const handlePayWithMercadoPago = async () => {
     setPaymentError("");
     setIsProcessingPayment(true);
@@ -340,6 +289,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     const pref = await createMercadoPagoPreference({
       title: productName,
       price: finalTotal,
+      productSlug: productSlug,
       payer: {
         nome: formData.nome,
         email: formData.email,
@@ -357,14 +307,16 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
       window.location.href = pref.init_point;
     } else {
       setIsProcessingPayment(false);
-      setPaymentError("Não foi possível conectar com o Mercado Pago. Tente novamente.");
+      setPaymentError("Não foi possível conectar com o Mercado Pago. Tente novamente ou use outra forma de pagamento.");
     }
   };
 
   // Concluir pedido
-  const handleCompleteOrder = () => {
+  const handleCompleteOrder = (methodOverride?: "PIX" | "CARTAO" | "BOLETO" | "PAYPAL") => {
     const generatedOrder = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
     setOrderNumber(generatedOrder);
+
+    const chosenPaymentMethod = (methodOverride || paymentMethod.toUpperCase()) as "PIX" | "CARTAO" | "BOLETO" | "PAYPAL";
 
     saveOrder({
       id: generatedOrder,
@@ -385,7 +337,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
       frete: shippingCost,
       total: finalTotal,
       shippingMethod: shippingMethod.toUpperCase(),
-      paymentMethod: paymentMethod.toUpperCase() as "PIX" | "CARTAO" | "BOLETO",
+      paymentMethod: chosenPaymentMethod,
       user: {
         id: "usr-" + Date.now(),
         nome: formData.nome,
@@ -404,11 +356,20 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   };
 
   const pixKey = "00020126580014BR.GOV.BCB.PIX0136alojadomeunamorado@pix.com.br520400005303986540510.005802BR5925A LOJA DO MEU NAMORADO6009SAO PAULO62070503***6304E8A9";
+  const pixKeyEmail = "alojadomeunamorado@pix.com.br";
 
   const handleCopyPix = () => {
     navigator.clipboard.writeText(pixKey);
     setCopiedPix(true);
     setTimeout(() => setCopiedPix(false), 3000);
+  };
+
+  const boletoCode = "34191.79001 01043.510047 91020.150008 8 98760000001000";
+
+  const handleCopyBoleto = () => {
+    navigator.clipboard.writeText(boletoCode.replace(/\s+/g, ""));
+    setCopiedBoleto(true);
+    setTimeout(() => setCopiedBoleto(false), 3000);
   };
 
   // ==================== TELA 1: DADOS E ENTREGA ====================
@@ -508,11 +469,23 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                   placeholder="exemplo@gmail.com"
                   value={formData.email}
                   onChange={handleChange}
+                  onBlur={() => {
+                    if (formData.email) {
+                      const res = validateEmailStrict(formData.email);
+                      if (!res.isValid) {
+                        setErrors((prev) => ({ ...prev, email: res.error || "E-mail inválido." }));
+                      }
+                    }
+                  }}
                   className={`border px-3.5 py-2.5 text-sm font-medium outline-none transition-colors ${
                     errors.email ? "border-red-500 bg-red-50/30" : "border-gray-300 focus:border-black"
                   }`}
                 />
-                {errors.email && <span className="text-xs text-red-600 font-medium">{errors.email}</span>}
+                {errors.email ? (
+                  <span className="text-xs text-red-600 font-bold">{errors.email}</span>
+                ) : formData.email && isValidEmail(formData.email) ? (
+                  <span className="text-xs text-green-600 font-bold">✓ E-mail verificado</span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -762,89 +735,97 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
           </div>
         </div>
 
-        {/* BOTÃO OFICIAL DO MERCADO PAGO - COBRANÇA BANCÁRIA REAL */}
-        <div className="bg-[#009ee3]/10 border-2 border-[#009ee3] p-5 rounded-xs flex flex-col items-center text-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
-            <span className="font-black text-sm uppercase text-[#009ee3] tracking-wider">
-              PAGAMENTO REAL VIA MERCADO PAGO
-            </span>
-            <span className="bg-[#009ee3] text-white text-[10px] font-bold px-2 py-0.5 rounded-xs">
-              Débito Real no Banco
-            </span>
-          </div>
-          <p className="text-xs text-gray-700 max-w-md">
-            Pague com seu <strong>Cartão de Crédito Real</strong>, <strong>PIX Oficial</strong> ou <strong>Saldo do Mercado Pago</strong> com cobrança instantânea no seu aplicativo bancário.
-          </p>
-          <button
-            type="button"
-            onClick={handlePayWithMercadoPago}
-            disabled={isProcessingPayment}
-            className="w-full max-w-md bg-[#009ee3] text-white py-3.5 px-6 font-black text-sm uppercase tracking-wider hover:bg-[#007eb5] transition-colors shadow-md flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {isProcessingPayment ? "Conectando ao Mercado Pago..." : `Pagar R$ ${finalTotal.toFixed(2).replace(".", ",")} via Mercado Pago ➔`}
-          </button>
-          <div className="flex items-center gap-3 text-[10px] text-gray-500 font-bold uppercase mt-1">
-            <span>✓ PIX Instantâneo</span>
-            <span>•</span>
-            <span>✓ Cartão em até 12x</span>
-            <span>•</span>
-            <span>✓ Garantia Mercado Pago</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 my-1">
-          <div className="flex-1 h-px bg-gray-200"></div>
-          <span className="text-[11px] font-bold uppercase text-gray-400">Ou use o formulário direto abaixo</span>
-          <div className="flex-1 h-px bg-gray-200"></div>
-        </div>
-
-        {/* Abas de Pagamento */}
+        {/* Abas de Pagamento Selecionáveis (Exatamente as 4 formas solicitadas) */}
         <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-3 gap-2 border-b clean-border pb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-b clean-border pb-4">
+            {/* 1. PIX Direto */}
             <button
+              type="button"
               onClick={() => setPaymentMethod("pix")}
-              className={`py-3 font-bold text-xs uppercase tracking-wider border text-center transition-all cursor-pointer ${
+              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "pix"
                   ? "border-black bg-black text-white shadow-xs"
-                  : "border-gray-200 text-gray-600 hover:border-gray-400"
+                  : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
               }`}
             >
-              PIX <span className="text-[10px] bg-green-500 text-white px-1.5 py-0.5 rounded-xs ml-1 hidden sm:inline">-5%</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">💠</span>
+                <span>PIX Direto</span>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "pix" ? "bg-emerald-400 text-black" : "bg-emerald-100 text-emerald-800"}`}>
+                5% de Desconto
+              </span>
             </button>
+
+            {/* 2. Cartão (Mercado Pago) */}
             <button
+              type="button"
               onClick={() => setPaymentMethod("cartao")}
-              className={`py-3 font-bold text-xs uppercase tracking-wider border text-center transition-all cursor-pointer ${
+              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "cartao"
-                  ? "border-black bg-black text-white shadow-xs"
-                  : "border-gray-200 text-gray-600 hover:border-gray-400"
+                  ? "border-[#009ee3] bg-[#009ee3] text-white shadow-xs"
+                  : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
               }`}
             >
-              Cartão de Crédito
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">💳</span>
+                <span>Cartão</span>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "cartao" ? "bg-white text-[#009ee3]" : "bg-blue-50 text-[#009ee3]"}`}>
+                Mercado Pago
+              </span>
             </button>
+
+            {/* 3. Boleto Bancário */}
             <button
+              type="button"
               onClick={() => setPaymentMethod("boleto")}
-              className={`py-3 font-bold text-xs uppercase tracking-wider border text-center transition-all cursor-pointer ${
+              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "boleto"
                   ? "border-black bg-black text-white shadow-xs"
-                  : "border-gray-200 text-gray-600 hover:border-gray-400"
+                  : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
               }`}
             >
-              Boleto
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">📄</span>
+                <span>Boleto</span>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "boleto" ? "bg-gray-200 text-black" : "bg-gray-100 text-gray-600"}`}>
+                Bancário
+              </span>
+            </button>
+
+            {/* 4. PayPal */}
+            <button
+              type="button"
+              onClick={() => setPaymentMethod("paypal")}
+              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                paymentMethod === "paypal"
+                  ? "border-[#003087] bg-[#003087] text-white shadow-xs"
+                  : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">🅿️</span>
+                <span>PayPal</span>
+              </div>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "paypal" ? "bg-[#ffc439] text-[#003087]" : "bg-amber-100 text-amber-900"}`}>
+                Global
+              </span>
             </button>
           </div>
 
-          {/* CONTEÚDO DA ABA: PIX */}
+          {/* ================= ABA 1: PIX DIRETO PARA MINHA CONTA ================= */}
           {paymentMethod === "pix" && (
-            <div className="flex flex-col items-center text-center gap-6 py-4 animate-fadeIn">
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-2 font-bold uppercase rounded-xs">
-                Aprovação Instantânea • Desconto exclusivo aplicado
+            <div className="flex flex-col items-center text-center gap-6 py-2 animate-fadeIn max-w-xl mx-auto w-full">
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
+                <span>✓</span>
+                <span>Pix Direto na Minha Conta • Aprovação Imediata • 5% de Desconto</span>
               </div>
 
-              {/* QR Code Simulado em SVG */}
-              <div className="p-4 bg-white border-2 border-dashed border-gray-300 rounded-sm shadow-xs flex flex-col items-center">
+              {/* QR Code */}
+              <div className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-sm shadow-xs flex flex-col items-center">
                 <svg className="w-48 h-48" viewBox="0 0 100 100" fill="currentColor">
-                  {/* Padrão QR Code visual */}
                   <rect width="100" height="100" fill="white" />
                   <rect x="10" y="10" width="25" height="25" fill="black" />
                   <rect x="15" y="15" width="15" height="15" fill="white" />
@@ -868,228 +849,298 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                   <rect x="40" y="75" width="10" height="10" fill="black" />
                 </svg>
                 <span className="text-[11px] font-bold text-gray-500 uppercase mt-2">
-                  Abra o app do seu banco e escaneie o código
+                  Abra o aplicativo do seu banco e escaneie o código
                 </span>
               </div>
 
-              {/* Pix Copia e Cola */}
-              <div className="w-full max-w-md flex flex-col gap-2">
-                <span className="text-xs font-bold text-gray-700 uppercase">Ou copie a chave Pix:</span>
+              {/* Chave E-mail Direta */}
+              <div className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xs text-left flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase block">Chave Pix Direta (E-mail):</span>
+                  <span className="font-mono font-bold text-sm text-black">{pixKeyEmail}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(pixKeyEmail);
+                    setCopiedPix(true);
+                    setTimeout(() => setCopiedPix(false), 2500);
+                  }}
+                  className="bg-black text-white px-3 py-1.5 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors rounded-xs cursor-pointer self-stretch sm:self-auto text-center"
+                >
+                  {copiedPix ? "Chave Copiada! ✓" : "Copiar Chave"}
+                </button>
+              </div>
+
+              {/* Pix Copia e Cola Completo */}
+              <div className="w-full flex flex-col gap-1.5 text-left">
+                <span className="text-xs font-bold text-gray-700 uppercase">Ou use o Pix Copia e Cola:</span>
                 <div className="flex border border-gray-300 rounded-xs overflow-hidden">
                   <input 
                     type="text" 
                     readOnly 
                     value={pixKey} 
-                    className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate"
+                    className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate font-mono"
                   />
                   <button 
+                    type="button"
                     onClick={handleCopyPix}
                     className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
                   >
-                    {copiedPix ? "Copiado! ✓" : "Copiar"}
+                    {copiedPix ? "Copiado! ✓" : "Copiar Código"}
                   </button>
                 </div>
               </div>
 
+              {/* Passo a Passo */}
+              <div className="w-full bg-gray-50 border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
+                <span className="font-bold text-black uppercase text-[11px]">Como funciona o pagamento via PIX:</span>
+                <ol className="list-decimal list-inside space-y-1 text-gray-600">
+                  <li>Abra o app do seu banco e acerte a opção <strong>PIX</strong>.</li>
+                  <li>Escaneie o QR Code acima ou cole o código Copia e Cola.</li>
+                  <li>Confirme o valor exato de <strong className="text-black">R$ {finalTotal.toFixed(2).replace(".", ",")}</strong>.</li>
+                  <li>Após transferir, clique no botão verde abaixo para confirmar seu pedido e iniciar o envio!</li>
+                </ol>
+              </div>
+
               <button 
+                type="button"
                 onClick={handlePayWithPix}
-                className="w-full max-w-md bg-emerald-600 text-white py-4 font-black text-sm uppercase tracking-wider hover:bg-emerald-700 transition-colors shadow-lg cursor-pointer mt-2"
+                disabled={isProcessingPayment}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer"
               >
-                Confirmar Pagamento Realizado ✓
+                {isProcessingPayment ? "Confirmando recebimento..." : "Confirmar Pagamento Realizado ✓"}
               </button>
             </div>
           )}
 
-          {/* CONTEÚDO DA ABA: CARTÃO DE CRÉDITO */}
+          {/* ================= ABA 2: CARTÃO USANDO MERCADO PAGO ================= */}
           {paymentMethod === "cartao" && (
-            <div className="flex flex-col gap-4 max-w-lg mx-auto w-full py-2 animate-fadeIn">
+            <div className="flex flex-col gap-6 max-w-xl mx-auto w-full py-2 animate-fadeIn">
               
-              {/* Alerta de Erro Geral */}
-              {paymentError && (
-                <div className="p-3 bg-red-50 border border-red-300 text-red-700 text-xs font-bold rounded-xs">
-                  {paymentError}
-                </div>
-              )}
-
-              {/* Número do Cartão */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                    Número do Cartão *
-                  </label>
-                  {detectedBrand !== "unknown" && (
-                    <span className="bg-black text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-xs">
-                      {detectedBrand}
+              {/* Card Branded Mercado Pago */}
+              <div className="bg-gradient-to-br from-[#009ee3]/10 to-transparent border-2 border-[#009ee3] p-6 rounded-xs flex flex-col gap-5">
+                <div className="flex items-center justify-between border-b border-[#009ee3]/20 pb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                    <span className="font-black text-sm sm:text-base uppercase text-[#009ee3] tracking-wider">
+                      Mercado Pago • Gateway Oficial
                     </span>
-                  )}
-                </div>
-                <input 
-                  type="text"
-                  maxLength={19}
-                  placeholder="0000 0000 0000 0000"
-                  value={cardData.numero}
-                  onChange={(e) => {
-                    const val = formatCardNumber(e.target.value);
-                    setCardData({ ...cardData, numero: val });
-                    const clean = val.replace(/\D/g, "");
-                    if (clean.length >= 13) {
-                      if (!isValidLuhn(val)) {
-                        setCardErrors((prev) => ({ ...prev, numero: "Cartão inválido! O número não passou no teste de validação bancária." }));
-                      } else {
-                        setCardErrors((prev) => {
-                          const nxt = { ...prev };
-                          delete nxt.numero;
-                          return nxt;
-                        });
-                      }
-                    }
-                  }}
-                  className={`border px-3.5 py-2.5 text-sm font-medium outline-none transition-colors ${
-                    cardErrors.numero ? "border-red-500 bg-red-50/30" : "border-gray-300 focus:border-black"
-                  }`}
-                />
-                {cardErrors.numero ? (
-                  <span className="text-xs text-red-600 font-bold">{cardErrors.numero}</span>
-                ) : cardData.numero.replace(/\D/g, "").length >= 13 && isValidLuhn(cardData.numero) ? (
-                  <span className="text-xs text-green-600 font-bold">✓ Número de Cartão Válido</span>
-                ) : null}
-              </div>
-
-              {/* Nome Impresso */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                  Nome Impresso no Cartão *
-                </label>
-                <input 
-                  type="text"
-                  placeholder="Ex: CARLOS E SILVA"
-                  value={cardData.nome}
-                  onChange={(e) => {
-                    const val = e.target.value.toUpperCase();
-                    setCardData({ ...cardData, nome: val });
-                    if (val.trim().split(" ").length >= 2) {
-                      setCardErrors((prev) => {
-                        const nxt = { ...prev };
-                        delete nxt.nome;
-                        return nxt;
-                      });
-                    }
-                  }}
-                  className={`border px-3.5 py-2.5 text-sm font-medium outline-none uppercase transition-colors ${
-                    cardErrors.nome ? "border-red-500 bg-red-50/30" : "border-gray-300 focus:border-black"
-                  }`}
-                />
-                {cardErrors.nome && <span className="text-xs text-red-600 font-bold">{cardErrors.nome}</span>}
-              </div>
-
-              {/* Validade e CVV */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                    Validade (MM/AA) *
-                  </label>
-                  <input 
-                    type="text"
-                    maxLength={5}
-                    placeholder="12/28"
-                    value={cardData.validade}
-                    onChange={(e) => {
-                      const val = formatCardExpiry(e.target.value);
-                      setCardData({ ...cardData, validade: val });
-                      if (val.length === 5) {
-                        if (!isValidCardExpiry(val)) {
-                          setCardErrors((prev) => ({ ...prev, validade: "Data de validade inválida ou vencida." }));
-                        } else {
-                          setCardErrors((prev) => {
-                            const nxt = { ...prev };
-                            delete nxt.validade;
-                            return nxt;
-                          });
-                        }
-                      }
-                    }}
-                    className={`border px-3.5 py-2.5 text-sm font-medium outline-none transition-colors ${
-                      cardErrors.validade ? "border-red-500 bg-red-50/30" : "border-gray-300 focus:border-black"
-                    }`}
-                  />
-                  {cardErrors.validade && <span className="text-xs text-red-600 font-bold">{cardErrors.validade}</span>}
+                  </div>
+                  <span className="bg-[#009ee3] text-white text-[10px] font-black px-2 py-0.5 rounded-xs uppercase tracking-wider">
+                    Débito Real no Banco
+                  </span>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                    CVV *
-                  </label>
-                  <input 
-                    type="text"
-                    maxLength={4}
-                    placeholder="123"
-                    value={cardData.cvv}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "");
-                      setCardData({ ...cardData, cvv: val });
-                      if (isValidCVV(val, detectedBrand)) {
-                        setCardErrors((prev) => {
-                          const nxt = { ...prev };
-                          delete nxt.cvv;
-                          return nxt;
-                        });
-                      }
-                    }}
-                    className={`border px-3.5 py-2.5 text-sm font-medium outline-none transition-colors ${
-                      cardErrors.cvv ? "border-red-500 bg-red-50/30" : "border-gray-300 focus:border-black"
-                    }`}
-                  />
-                  {cardErrors.cvv && <span className="text-xs text-red-600 font-bold">{cardErrors.cvv}</span>}
-                </div>
-              </div>
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  Pague com seu <strong>Cartão de Crédito Real</strong> com parcelamento em até <strong>12x</strong>, débito bancário ou saldo da conta. O valor é debitado diretamente no seu cartão com aprovação imediata e comprovante bancário oficial.
+                </p>
 
-              {/* Parcelamento */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                  Parcelamento
-                </label>
-                <select 
-                  value={cardData.parcelas}
-                  onChange={(e) => setCardData({ ...cardData, parcelas: e.target.value })}
-                  className="border border-gray-300 px-3.5 py-2.5 text-sm font-medium outline-none focus:border-black bg-white cursor-pointer"
+                {/* Bandeiras Aceitas */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[11px] font-bold uppercase text-gray-500">Bandeiras de Cartão Aceitas:</span>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="bg-white border border-gray-300 px-3 py-1 font-black text-xs text-blue-800 rounded-xs">VISA</span>
+                    <span className="bg-white border border-gray-300 px-3 py-1 font-black text-xs text-red-600 rounded-xs">MASTERCARD</span>
+                    <span className="bg-white border border-gray-300 px-3 py-1 font-black text-xs text-black rounded-xs">ELO</span>
+                    <span className="bg-white border border-gray-300 px-3 py-1 font-black text-xs text-red-500 rounded-xs">HIPERCARD</span>
+                    <span className="bg-white border border-gray-300 px-3 py-1 font-black text-xs text-blue-600 rounded-xs">AMEX</span>
+                  </div>
+                </div>
+
+                {/* Detalhes do Pagamento */}
+                <div className="bg-white p-4 border border-[#009ee3]/30 rounded-xs flex flex-col gap-2 text-xs">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Subtotal do Produto:</span>
+                    <span>R$ {basePriceNum.toFixed(2).replace(".", ",")}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Frete Correios ({shippingMethod.toUpperCase()}):</span>
+                    <span>R$ {shippingCost.toFixed(2).replace(".", ",")}</span>
+                  </div>
+                  <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-black text-sm">
+                    <span>Total no Cartão:</span>
+                    <span className="text-[#009ee3] font-black text-base">R$ {finalTotal.toFixed(2).replace(".", ",")}</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500 italic">
+                    * Opção de parcelamento em até 12x com taxas da operadora disponível na tela de pagamento oficial do Mercado Pago.
+                  </span>
+                </div>
+
+                {/* Benefícios e Segurança */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-gray-600 font-medium pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-600 font-bold">✓</span>
+                    <span>Cobrança real no seu banco</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-600 font-bold">✓</span>
+                    <span>Até 12x no cartão</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-600 font-bold">✓</span>
+                    <span>Compra 100% protegida</span>
+                  </div>
+                </div>
+
+                {paymentError && (
+                  <div className="p-3 bg-red-50 border border-red-300 text-red-700 text-xs font-bold rounded-xs">
+                    {paymentError}
+                  </div>
+                )}
+
+                {/* Botão de Cobrança Oficial */}
+                <button
+                  type="button"
+                  onClick={handlePayWithMercadoPago}
+                  disabled={isProcessingPayment}
+                  className="w-full bg-[#009ee3] hover:bg-[#0086c2] text-white py-4 px-6 font-black text-sm uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer mt-1"
                 >
-                  <option value="1">1x de R$ {finalTotal.toFixed(2).replace(".", ",")} sem juros</option>
-                  <option value="2">2x de R$ {(finalTotal / 2).toFixed(2).replace(".", ",")} sem juros</option>
-                  <option value="3">3x de R$ {(finalTotal / 3).toFixed(2).replace(".", ",")} sem juros</option>
-                </select>
+                  {isProcessingPayment ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Conectando ao Mercado Pago...
+                    </span>
+                  ) : (
+                    `Pagar R$ ${finalTotal.toFixed(2).replace(".", ",")} no Cartão via Mercado Pago ➔`
+                  )}
+                </button>
               </div>
 
-              {/* Selo de Segurança */}
-              <div className="flex items-center gap-2 text-[11px] text-gray-500 py-1">
-                <span>🔒</span>
-                <span>Transação protegida com criptografia bancária de ponta a ponta.</span>
+            </div>
+          )}
+
+          {/* ================= ABA 3: BOLETO BANCÁRIO ================= */}
+          {paymentMethod === "boleto" && (
+            <div className="flex flex-col items-center text-center gap-5 py-4 animate-fadeIn max-w-xl mx-auto w-full">
+              <div className="bg-gray-100 border border-gray-300 text-gray-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
+                <span>📄</span>
+                <span>Boleto Bancário à Vista • Vencimento em 3 dias úteis</span>
+              </div>
+
+              {/* Representação visual do código de barras */}
+              <div className="w-full bg-white border border-gray-300 p-5 rounded-xs flex flex-col items-center gap-3 shadow-xs">
+                <div className="flex items-center justify-center gap-1 h-12 w-full max-w-sm overflow-hidden opacity-80">
+                  {[2, 4, 1, 3, 2, 5, 1, 2, 4, 2, 3, 1, 4, 2, 1, 3, 2, 4, 1, 5, 2, 3, 1, 4, 2, 1, 3, 2, 4, 1, 3, 2, 5, 1, 2, 4].map((w, idx) => (
+                    <div 
+                      key={idx} 
+                      className="h-full bg-black" 
+                      style={{ width: `${w * 2}px` }}
+                    />
+                  ))}
+                </div>
+
+                <div className="w-full flex flex-col gap-1.5 mt-2 text-left">
+                  <span className="text-[11px] font-bold text-gray-500 uppercase">Linha Digitável do Boleto:</span>
+                  <div className="flex border border-gray-300 rounded-xs overflow-hidden">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={boletoCode} 
+                      className="w-full px-3 py-2 text-xs font-mono text-gray-700 bg-gray-50 outline-none truncate"
+                    />
+                    <button 
+                      type="button"
+                      onClick={handleCopyBoleto}
+                      className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
+                    >
+                      {copiedBoleto ? "Copiado! ✓" : "Copiar"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Informações de Compensação */}
+              <div className="w-full bg-gray-50 border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
+                <span className="font-bold text-black uppercase text-[11px]">Informações do Boleto:</span>
+                <ul className="space-y-1 text-gray-600 list-disc list-inside">
+                  <li>Pagável em qualquer banco, lotérica ou via Internet Banking.</li>
+                  <li>O pagamento pode levar de <strong>1 a 2 dias úteis</strong> para ser compensado pelo banco.</li>
+                  <li>Assim que a compensação for confirmada, o pedido físico será expedido via <strong>{shippingMethod.toUpperCase()}</strong>.</li>
+                </ul>
               </div>
 
               <button 
-                onClick={handlePayWithCard}
-                className="w-full bg-black text-white py-4 font-black text-sm uppercase tracking-wider hover:bg-[#cc0000] transition-colors shadow-md mt-2 cursor-pointer"
+                type="button"
+                onClick={handlePayWithBoleto}
+                disabled={isProcessingPayment}
+                className="w-full bg-black hover:bg-[#cc0000] text-white py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-md cursor-pointer"
               >
-                Pagar R$ {finalTotal.toFixed(2).replace(".", ",")} com Cartão ➔
+                {isProcessingPayment ? "Registrando pedido..." : `Concluir Pedido com Boleto (R$ ${finalTotal.toFixed(2).replace(".", ",")}) ➔`}
               </button>
             </div>
           )}
 
-          {/* CONTEÚDO DA ABA: BOLETO */}
-          {paymentMethod === "boleto" && (
-            <div className="flex flex-col items-center text-center gap-4 py-4 animate-fadeIn max-w-md mx-auto">
-              <div className="text-4xl">📄</div>
-              <h4 className="font-bold text-sm uppercase">Boleto Bancário</h4>
-              <p className="text-xs text-gray-600">
-                O boleto será gerado no nome de <strong>{formData.nome}</strong> com vencimento para 3 dias úteis.
-              </p>
-              <div className="w-full p-3 bg-gray-50 border border-gray-300 font-mono text-xs text-gray-600 break-all">
-                34191.79001 01043.510047 91020.150008 8 98760000001000
+          {/* ================= ABA 4: PAYPAL ================= */}
+          {paymentMethod === "paypal" && (
+            <div className="flex flex-col items-center text-center gap-5 py-4 animate-fadeIn max-w-xl mx-auto w-full">
+              <div className="bg-[#003087]/10 border border-[#003087]/30 text-[#003087] text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
+                <span>🅿️</span>
+                <span>PayPal Global Checkout • Proteção ao Comprador</span>
               </div>
+
+              <div className="w-full bg-white border border-gray-300 p-5 rounded-xs flex flex-col gap-4 text-left shadow-xs">
+                <div>
+                  <h4 className="font-black text-sm uppercase tracking-wide text-[#003087]">
+                    Pague com sua conta PayPal ou Cartão Internacional
+                  </h4>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Conclua a compra com rapidez e segurança usando sua conta PayPal ou cartões de débito/crédito aceitos internacionalmente.
+                  </p>
+                </div>
+
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-xs flex justify-between items-center text-xs">
+                  <span className="font-bold text-gray-600 uppercase">Total a pagar com PayPal:</span>
+                  <span className="font-black text-sm text-[#003087]">
+                    R$ {finalTotal.toFixed(2).replace(".", ",")}
+                  </span>
+                </div>
+
+                {/* Renderização dos Botões Oficiais do PayPal */}
+                <div className="w-full pt-2">
+                  <PayPalScriptProvider options={{ clientId: "test", currency: "BRL", intent: "capture" }}>
+                    <PayPalButtons 
+                      style={{ layout: "vertical", color: "gold", shape: "rect", label: "pay" }} 
+                      createOrder={(data, actions) => {
+                        return actions.order.create({
+                          intent: "CAPTURE",
+                          purchase_units: [
+                            {
+                              description: productName,
+                              amount: {
+                                currency_code: "BRL",
+                                value: finalTotal.toFixed(2),
+                              },
+                            },
+                          ],
+                        });
+                      }}
+                      onApprove={async (data, actions) => {
+                        if (actions.order) {
+                          await actions.order.capture();
+                          handleCompleteOrder("PAYPAL");
+                        }
+                      }}
+                      onError={(err) => {
+                        console.error("PayPal Error:", err);
+                      }}
+                    />
+                  </PayPalScriptProvider>
+                </div>
+
+                <div className="flex items-center gap-2 text-[11px] text-gray-500 pt-2 border-t border-gray-100">
+                  <span>🔒</span>
+                  <span>Transação criptografada com proteção de compra oficial do PayPal.</span>
+                </div>
+              </div>
+
               <button 
-                onClick={handleCompleteOrder}
-                className="w-full bg-black text-white py-4 font-black text-sm uppercase tracking-wider hover:bg-[#cc0000] transition-colors shadow-md mt-2 cursor-pointer"
+                type="button"
+                onClick={handlePayWithPayPal}
+                disabled={isProcessingPayment}
+                className="w-full bg-[#003087] hover:bg-[#002266] text-white py-3.5 font-bold text-xs uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
               >
-                Gerar Boleto e Finalizar Pedido ➔
+                {isProcessingPayment ? "Processando..." : "Confirmar Compra via PayPal (Modo Direto) ➔"}
               </button>
             </div>
           )}

@@ -9,6 +9,7 @@ import {
   formatCEP, 
   isValidCEP, 
   isValidEmail, 
+  validateEmailStrict,
   fetchAddressByCEP 
 } from "@/lib/validation";
 import { getSavedUser, saveUser, logoutUser, getOrders, UserProfile, Order } from "@/lib/store";
@@ -80,8 +81,9 @@ export default function AuthModal({ isOpen, onClose }: Props) {
         });
       }
     } else if (name === "email") {
-      if (value.length > 5 && !isValidEmail(value)) {
-        setErrors((prev) => ({ ...prev, email: "E-mail inválido." }));
+      const check = validateEmailStrict(value);
+      if (value.length > 3 && !check.isValid) {
+        setErrors((prev) => ({ ...prev, email: check.error || "E-mail inválido." }));
       } else {
         setErrors((prev) => {
           const next = { ...prev };
@@ -124,8 +126,9 @@ export default function AuthModal({ isOpen, onClose }: Props) {
     if (!formData.nome.trim() || formData.nome.trim().split(" ").length < 2) {
       newErrors.nome = "Informe nome e sobrenome.";
     }
-    if (!isValidEmail(formData.email)) {
-      newErrors.email = "E-mail inválido.";
+    const emailCheck = validateEmailStrict(formData.email);
+    if (!emailCheck.isValid) {
+      newErrors.email = emailCheck.error || "E-mail inválido ou falso.";
     }
     if (!isValidCPF(formData.cpf)) {
       newErrors.cpf = "CPF inválido.";
