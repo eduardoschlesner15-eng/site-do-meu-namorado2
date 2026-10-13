@@ -953,14 +953,21 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 </div>
               )}
 
-              {/* Chave Pix Cadastrada */}
-              <div className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xs text-left flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              {/* Chave Pix Cadastrada (Aleatória / EVP Mercado Pago - Dados Pessoais 100% Ocultos) */}
+              <div className="w-full bg-gray-50 border border-gray-200 p-3.5 rounded-xs text-left flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <div>
-                  <span className="text-[10px] font-bold text-gray-500 uppercase block">
-                    Chave Pix Oficial da Loja ({PIX_CONFIG.tipoChave}):
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">
+                      Chave Aleatória Mercado Pago (EVP):
+                    </span>
+                    <span className="text-[10px] bg-blue-100 text-[#009ee3] font-black px-1.5 py-0.5 rounded-xs">
+                      Protegida
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-sm text-black">{PIX_CONFIG.chaveMascara}</span>
+                  <span className="text-[10px] text-gray-500 block">
+                    Beneficiário: {PIX_CONFIG.beneficiario} • Celular e CPF 100% ocultos
                   </span>
-                  <span className="font-mono font-bold text-sm text-black">{PIX_CONFIG.chaveFormatada}</span>
-                  <span className="text-[10px] text-gray-500 block">Beneficiário: {PIX_CONFIG.beneficiario}</span>
                 </div>
                 <button
                   type="button"
@@ -1015,22 +1022,34 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 </ol>
               </div>
 
-              <button 
-                type="button"
-                onClick={handlePayWithPix}
-                disabled={isProcessingPayment || isPixExpired}
-                className={`w-full py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer ${
-                  isPixExpired 
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
-                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                }`}
-              >
-                {isProcessingPayment 
-                  ? "Confirmando recebimento..." 
-                  : isPixExpired 
-                    ? "Código Expirado - Gere um Novo Código" 
-                    : "Confirmar Pagamento Realizado ✓"}
-              </button>
+              <div className="w-full flex flex-col gap-2">
+                <button 
+                  type="button"
+                  onClick={handlePayWithPix}
+                  disabled={isProcessingPayment || isPixExpired}
+                  className={`w-full py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer ${
+                    isPixExpired 
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  }`}
+                >
+                  {isProcessingPayment 
+                    ? "Confirmando recebimento..." 
+                    : isPixExpired 
+                      ? "Código Expirado - Gere um Novo Código" 
+                      : "Confirmar Pagamento Realizado ✓"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePayWithMercadoPago}
+                  disabled={isProcessingPayment}
+                  className="w-full bg-[#009ee3]/10 hover:bg-[#009ee3]/20 border border-[#009ee3] text-[#009ee3] py-3 px-4 font-bold text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <span>⚡</span>
+                  <span>Ou Pagar Pix pelo Checkout Oficial do Mercado Pago ➔</span>
+                </button>
+              </div>
             </div>
           )}
 

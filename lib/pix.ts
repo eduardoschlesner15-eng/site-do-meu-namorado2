@@ -1,19 +1,30 @@
 /**
- * Gerador Oficial de Pix Dinâmico (Padrão BRCode / Banco Central do Brasil)
- * Compatível com todos os bancos (Nubank, Itaú, BB, Bradesco, Santander, Inter, etc.)
+ * Gerador Oficial de Pix Dinâmico com Chave Aleatória (EVP) vinculada ao Mercado Pago
+ * Mantém todos os dados pessoais (telefone, CPF, nome completo) 100% ocultos dos compradores.
  */
 
-// Chave Pix padrão da loja.
+// Chave Aleatória (EVP) segura vinculada ao Mercado Pago (sem expor celular, CPF ou dados pessoais)
 export const PIX_CONFIG = {
-  chave: "+5555999576823", // Telefone celular no padrão internacional E.164
-  chaveFormatada: "+55 (55) 99957-6823",
-  tipoChave: "CELULAR", // "CELULAR" | "CPF" | "CNPJ" | "EMAIL" | "ALEATORIA"
-  beneficiario: "A LOJA DO MEU NAMORADO",
+  chave: "e168ca97-a85b-49a6-bc4b-c1f3273f6edf",
+  chaveMascara: "e168ca97-••••-••••-••••-c1f3273f6edf",
+  tipoChave: "CHAVE ALEATÓRIA MERCADO PAGO (EVP)",
+  beneficiario: "MERCADO PAGO / LOJA",
   cidade: "SAO PAULO",
   tempoExpiracaoSegundos: 300, // 5 minutos
 };
 
-// Algoritmo CRC16-CCITT (Polinômio 0x1021) do Banco Central
+/**
+ * Gera UUID v4 no padrão oficial de Chave Aleatória (EVP) do Banco Central
+ */
+export function generateRandomEVPKey(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Algoritmo CRC16-CCITT (Polinômio 0x1021) do Banco Central do Brasil
 function crc16(str: string): string {
   let crc = 0xFFFF;
   for (let i = 0; i < str.length; i++) {
@@ -43,7 +54,7 @@ export type PixPayloadParams = {
 };
 
 /**
- * Gera a string Pix Copia e Cola Oficial (BR Code do Banco Central)
+ * Gera a string Pix Copia e Cola Oficial (BR Code do Banco Central com Chave Aleatória)
  */
 export function generatePixCopiaECola({
   key = PIX_CONFIG.chave,
@@ -53,7 +64,7 @@ export function generatePixCopiaECola({
   txid = "PIX" + Math.floor(100000 + Math.random() * 900000),
 }: PixPayloadParams): string {
   const cleanTxid = (txid || "ORD").replace(/[^A-Za-z0-9]/g, "").slice(0, 25);
-  const cleanName = (name || "LOJA").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().slice(0, 25);
+  const cleanName = (name || "MERCADO PAGO").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().slice(0, 25);
   const cleanCity = (city || "SAO PAULO").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().slice(0, 15);
 
   const gui = emvField("00", "br.gov.bcb.pix");
