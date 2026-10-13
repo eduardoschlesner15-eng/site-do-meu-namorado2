@@ -1,11 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import AuthModal from "./AuthModal";
+import { getSavedUser, UserProfile } from "@/lib/store";
 
 export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    setCurrentUser(getSavedUser());
+
+    const handleUserUpdate = () => {
+      setCurrentUser(getSavedUser());
+    };
+
+    window.addEventListener("user_updated", handleUserUpdate);
+    return () => window.removeEventListener("user_updated", handleUserUpdate);
+  }, []);
 
   return (
     <>
@@ -48,9 +63,12 @@ export default function Header() {
           
           {/* Right: Cart & Account */}
           <div className="flex-1 flex gap-3 sm:gap-6 items-center justify-end text-xs sm:text-sm font-bold">
-            <span className="hidden md:inline cursor-pointer hover:text-[#cc0000] transition-colors">
-              ENTRAR
-            </span>
+            <button 
+              onClick={() => setIsAuthOpen(true)}
+              className="hidden md:inline cursor-pointer hover:text-[#cc0000] transition-colors uppercase font-bold text-xs sm:text-sm"
+            >
+              {currentUser ? `OLÁ, ${currentUser.nome.split(" ")[0]}` : "ENTRAR"}
+            </button>
             <Link 
               href="/checkout/cigarreira-corta-tapa" 
               className="cursor-pointer hover:text-[#cc0000] transition-colors flex items-center gap-1.5"
@@ -58,7 +76,7 @@ export default function Header() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
-              <span>CARRINHO <span className="text-[#cc0000]">(0)</span></span>
+              <span>CARRINHO <span className="text-[#cc0000]">(1)</span></span>
             </Link>
           </div>
         </div>
@@ -154,7 +172,15 @@ export default function Header() {
 
               {/* Extra Support Links */}
               <div className="px-6 py-4 flex flex-col gap-3 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                <a href="#" className="hover:text-black">Minha Conta</a>
+                <button 
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsAuthOpen(true);
+                  }}
+                  className="text-left font-bold hover:text-black uppercase cursor-pointer"
+                >
+                  {currentUser ? `Minha Conta (${currentUser.nome.split(" ")[0]})` : "Minha Conta / Entrar"}
+                </button>
                 <a href="#" className="hover:text-black">Rastrear Pedido</a>
                 <a href="#" className="hover:text-black">Central de Ajuda</a>
               </div>
@@ -168,6 +194,9 @@ export default function Header() {
           </div>
         </div>
       )}
+
+      {/* Modal de Autenticação / Cadastro / Perfil */}
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </>
   );
 }
