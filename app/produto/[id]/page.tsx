@@ -56,8 +56,12 @@ export default async function ProductPage({ params }: Props) {
             <span className="font-bold">{product.category}</span>
           </div>
           <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-            <span className="text-gray-500 font-bold uppercase">Formato</span>
-            <span className="font-bold bg-gray-100 px-2 py-1">{product.compat}</span>
+            <span className="text-gray-500 font-bold uppercase">Material & Acabamento</span>
+            <span className="font-bold bg-gray-100 px-2 py-1">Peça Física em Alta Resolução</span>
+          </div>
+          <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+            <span className="text-gray-500 font-bold uppercase">Disponibilidade</span>
+            <span className="font-bold text-green-700">Em Estoque / Pronta Entrega</span>
           </div>
         </div>
 
@@ -68,8 +72,8 @@ export default async function ProductPage({ params }: Props) {
           COMPRAR AGORA
         </a>
         
-        <div className="text-xs text-gray-400 text-center uppercase tracking-widest mt-2">
-          Download imediato após aprovação
+        <div className="text-xs text-gray-500 text-center uppercase tracking-widest mt-2 flex items-center justify-center gap-1.5">
+          <span>🚚</span> Envio para todo o Brasil via Correios com Rastreio
         </div>
       </div>
     </div>

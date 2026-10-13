@@ -47,8 +47,8 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   // Erros de validação
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Opções de envio
-  const [shippingMethod, setShippingMethod] = useState<"digital" | "pac" | "sedex">("digital");
+  // Opções de envio físico (Correios)
+  const [shippingMethod, setShippingMethod] = useState<"pac" | "sedex">("pac");
   
   // Método de pagamento
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "boleto">("pix");
@@ -87,9 +87,9 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     }
   }, []);
 
-  // Cálculo de valores
+  // Cálculo de valores (Produtos Físicos com Frete Obrigatório)
   const basePriceNum = parseFloat(price.replace(",", ".")) || 10;
-  const shippingCost = shippingMethod === "sedex" ? 24.9 : shippingMethod === "pac" ? 14.9 : 0;
+  const shippingCost = shippingMethod === "sedex" ? 24.9 : 14.9;
   const pixDiscount = paymentMethod === "pix" ? basePriceNum * 0.05 : 0;
   const finalTotal = Math.max(0, basePriceNum + shippingCost - pixDiscount);
 
@@ -196,22 +196,21 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
       newErrors.telefone = "Número de telefone ou WhatsApp inválido com DDD.";
     }
 
-    if (shippingMethod !== "digital") {
-      if (!isValidCEP(formData.cep)) {
-        newErrors.cep = "Informe um CEP válido com 8 dígitos.";
-      }
-      if (!formData.endereco.trim()) {
-        newErrors.endereco = "Informe o logradouro / endereço.";
-      }
-      if (!formData.numero.trim()) {
-        newErrors.numero = "Informe o número.";
-      }
-      if (!formData.cidade.trim()) {
-        newErrors.cidade = "Informe a cidade.";
-      }
-      if (!formData.estado.trim()) {
-        newErrors.estado = "Informe o estado (UF).";
-      }
+    // Endereço de entrega obrigatório para envio físico
+    if (!isValidCEP(formData.cep)) {
+      newErrors.cep = "Informe um CEP válido com 8 dígitos.";
+    }
+    if (!formData.endereco.trim()) {
+      newErrors.endereco = "Informe a rua / logradouro para entrega.";
+    }
+    if (!formData.numero.trim()) {
+      newErrors.numero = "Informe o número.";
+    }
+    if (!formData.cidade.trim()) {
+      newErrors.cidade = "Informe a cidade.";
+    }
+    if (!formData.estado.trim()) {
+      newErrors.estado = "Informe o estado (UF).";
     }
 
     setErrors(newErrors);
@@ -399,32 +398,13 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             </div>
           </div>
 
-          {/* Seção 2: Método de Envio */}
+          {/* Seção 2: Método de Envio Físico */}
           <div className="border-t clean-border pt-6">
             <h4 className="font-black text-sm uppercase tracking-wider mb-4 flex items-center gap-2 text-black">
-              <span>🚚</span> 2. Forma de Envio
+              <span>🚚</span> 2. Forma de Envio (Correios)
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <label 
-                className={`border p-4 flex flex-col justify-between cursor-pointer rounded-xs transition-colors ${
-                  shippingMethod === "digital" ? "border-black bg-gray-50 ring-1 ring-black" : "border-gray-200 hover:border-gray-400"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <input 
-                    type="radio" 
-                    name="shippingMethod" 
-                    checked={shippingMethod === "digital"} 
-                    onChange={() => setShippingMethod("digital")} 
-                    className="accent-black"
-                  />
-                  <span className="font-bold text-xs uppercase">Download 3D</span>
-                </div>
-                <p className="text-[11px] text-gray-500 mb-2">Envio imediato no e-mail com arquivo original.</p>
-                <span className="font-black text-xs text-green-700 uppercase">Grátis</span>
-              </label>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label 
                 className={`border p-4 flex flex-col justify-between cursor-pointer rounded-xs transition-colors ${
                   shippingMethod === "pac" ? "border-black bg-gray-50 ring-1 ring-black" : "border-gray-200 hover:border-gray-400"
@@ -440,7 +420,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                   />
                   <span className="font-bold text-xs uppercase">PAC Correios</span>
                 </div>
-                <p className="text-[11px] text-gray-500 mb-2">Peça impressa e embalada (5 a 8 dias úteis).</p>
+                <p className="text-[11px] text-gray-500 mb-2">Produto embalado com proteção anti-impacto (5 a 8 dias úteis).</p>
                 <span className="font-black text-xs text-black">R$ 14,90</span>
               </label>
 
@@ -459,7 +439,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                   />
                   <span className="font-bold text-xs uppercase">SEDEX Expresso</span>
                 </div>
-                <p className="text-[11px] text-gray-500 mb-2">Entrega prioritária (1 a 3 dias úteis).</p>
+                <p className="text-[11px] text-gray-500 mb-2">Entrega rápida e prioritária (1 a 3 dias úteis).</p>
                 <span className="font-black text-xs text-black">R$ 24,90</span>
               </label>
             </div>
@@ -881,24 +861,38 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
         </p>
       </div>
 
-      {/* Box de Ação Imediata: Download do Arquivo 3D */}
-      <div className="w-full max-w-lg bg-[#f8f8f8] border border-gray-200 p-6 flex flex-col items-center gap-4 rounded-xs">
-        <span className="font-black text-xs uppercase tracking-wider text-black">
-          Seu Arquivo 3D está pronto para download
-        </span>
-        <div className="flex items-center gap-3">
-          <span className="bg-black text-white px-2.5 py-1 text-xs font-bold uppercase rounded-xs">
-            {fileType.toUpperCase()}
-          </span>
-          <span className="font-bold text-sm text-gray-800">{productName}</span>
+      {/* Box de Envio e Rastreamento Físico */}
+      <div className="w-full max-w-lg bg-[#f8f8f8] border border-gray-200 p-6 flex flex-col items-center gap-4 rounded-xs text-center">
+        <div className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-xl">
+          📦
         </div>
-        <a 
-          href={fileUrl || "/model.stl"}
-          download
-          className="bg-[#cc0000] text-white px-8 py-3.5 font-black text-xs uppercase tracking-wider hover:bg-black transition-colors shadow-sm w-full block"
-        >
-          Baixar Arquivo 3D Agora (.{(fileType || "stl").toUpperCase()}) 📥
-        </a>
+        <div>
+          <span className="font-black text-sm uppercase tracking-wider text-black block">
+            Produto Físico em Preparação para Envio
+          </span>
+          <p className="text-xs text-gray-600 mt-1">
+            Sua peça foi encaminhada para acabamento, embalagem e expedição.
+          </p>
+        </div>
+        
+        <div className="w-full bg-white border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
+          <div className="flex justify-between border-b border-gray-100 pb-2">
+            <span className="font-bold text-gray-500 uppercase">Item Físico:</span>
+            <span className="font-bold text-black">{productName}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-100 pb-2">
+            <span className="font-bold text-gray-500 uppercase">Modalidade:</span>
+            <span className="font-bold text-black">{shippingMethod === "sedex" ? "SEDEX Expresso (1 a 3 dias)" : "PAC Correios (5 a 8 dias)"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-bold text-gray-500 uppercase">Endereço de Entrega:</span>
+            <span className="font-medium text-black text-right">{formData.endereco}, {formData.numero} - {formData.cidade}/{formData.estado}</span>
+          </div>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 p-3 w-full rounded-xs text-[11px] text-amber-800 font-medium">
+          🚚 O código de rastreamento dos Correios será enviado para <strong>{formData.email}</strong> e <strong>{formData.telefone}</strong> assim que o pacote for postado!
+        </div>
       </div>
 
       <div className="flex gap-4 mt-4">

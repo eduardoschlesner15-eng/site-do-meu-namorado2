@@ -51,7 +51,7 @@ export default function ProductSection({ product, index }: { product: Product; i
             </div>
             <div className="flex justify-between">
               <span className="opacity-70">STATUS:</span>
-              <span className="animate-pulse neon-text">DOWNLOAD DISPONÍVEL</span>
+              <span className="font-bold text-green-400">PEÇA FÍSICA EM ESTOQUE</span>
             </div>
           </div>
 

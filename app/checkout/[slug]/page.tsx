@@ -38,8 +38,8 @@ export default async function CheckoutPage({ params }: Props) {
             <span className="font-bold">{product.category}</span>
           </div>
           <div className="flex justify-between items-center text-sm">
-            <span className="text-gray-500 font-bold uppercase">Formato 3D:</span>
-            <span className="font-bold bg-white border border-gray-200 px-2 py-0.5 rounded-xs">{product.compat}</span>
+            <span className="text-gray-500 font-bold uppercase">Produto:</span>
+            <span className="font-bold bg-white border border-gray-200 px-2 py-0.5 rounded-xs">Peça Física (Correios)</span>
           </div>
           <div className="flex justify-between items-center text-base border-t clean-border pt-3">
             <span className="font-bold uppercase">Subtotal:</span>
