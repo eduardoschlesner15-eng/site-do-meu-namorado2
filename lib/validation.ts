@@ -104,6 +104,92 @@ export function formatCardExpiry(value: string): string {
   return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 }
 
+// Algoritmo de Luhn (Módulo 10) - Validação Matemática Real de Cartão de Crédito
+export function isValidLuhn(cardNumber: string): boolean {
+  const clean = cardNumber.replace(/\D/g, "");
+  if (clean.length < 13 || clean.length > 19) return false;
+
+  let sum = 0;
+  let shouldDouble = false;
+
+  for (let i = clean.length - 1; i >= 0; i--) {
+    let digit = parseInt(clean.charAt(i), 10);
+
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+
+  return sum % 10 === 0;
+}
+
+export type CardBrand = "visa" | "mastercard" | "elo" | "amex" | "hipercard" | "unknown";
+
+// Detecta a bandeira do cartão pelos primeiros dígitos (BIN / IIN)
+export function getCardBrand(cardNumber: string): CardBrand {
+  const clean = cardNumber.replace(/\D/g, "");
+  if (!clean) return "unknown";
+
+  // Elo (várias faixas específicas brasileiras)
+  const eloPrefixes = ["4011", "438935", "451416", "4576", "504175", "5067", "509", "627780", "636297", "636368", "650", "6516", "6550"];
+  if (eloPrefixes.some((p) => clean.startsWith(p))) return "elo";
+
+  // Hipercard
+  if (clean.startsWith("606282") || clean.startsWith("3841")) return "hipercard";
+
+  // Amex: 34 ou 37
+  if (clean.startsWith("34") || clean.startsWith("37")) return "amex";
+
+  // Visa: começa com 4
+  if (clean.startsWith("4")) return "visa";
+
+  // Mastercard: 51-55 ou 2221-2720
+  const twoDigits = parseInt(clean.slice(0, 2), 10);
+  const fourDigits = parseInt(clean.slice(0, 4), 10);
+  if ((twoDigits >= 51 && twoDigits <= 55) || (fourDigits >= 2221 && fourDigits <= 2720)) {
+    return "mastercard";
+  }
+
+  return "unknown";
+}
+
+// Validação de Validade do Cartão (Verifica se MM é 01-12 e se a data não está no passado)
+export function isValidCardExpiry(expiry: string): boolean {
+  const clean = expiry.replace(/\D/g, "");
+  if (clean.length !== 4) return false;
+
+  const month = parseInt(clean.slice(0, 2), 10);
+  const yearTwoDigits = parseInt(clean.slice(2, 4), 10);
+
+  if (month < 1 || month > 12) return false;
+
+  const fullYear = 2000 + yearTwoDigits;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  if (fullYear < currentYear) return false;
+  if (fullYear === currentYear && month < currentMonth) return false;
+  // Limite razoável de validade: 20 anos no futuro
+  if (fullYear > currentYear + 20) return false;
+
+  return true;
+}
+
+// Validação de CVV (3 dígitos para a maioria, 4 para Amex)
+export function isValidCVV(cvv: string, brand: CardBrand = "unknown"): boolean {
+  const clean = cvv.replace(/\D/g, "");
+  if (brand === "amex") {
+    return clean.length === 4;
+  }
+  return clean.length === 3 || clean.length === 4;
+}
+
+
 export type ViaCEPResponse = {
   cep?: string;
   logradouro?: string;
