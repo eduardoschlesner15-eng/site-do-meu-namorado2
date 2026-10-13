@@ -15,6 +15,12 @@ import {
 import { getSavedUser, saveUser, saveOrder, UserProfile } from "@/lib/store";
 import { createMercadoPagoPreference } from "@/lib/mercadopago";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
+import { 
+  STORE_WHATSAPP_NUMBER, 
+  generateCustomerOrderMessage, 
+  generateSellerOrderMessage, 
+  getWhatsAppUrl 
+} from "@/lib/whatsapp";
 
 type Props = {
   productName: string;
@@ -1151,6 +1157,34 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   }
 
   // ==================== TELA 3: SUCESSO ====================
+  const notificationData = {
+    id: orderNumber || "ORD-RECENTE",
+    productName,
+    subtotal: basePriceNum,
+    frete: shippingCost,
+    total: finalTotal,
+    shippingMethod: shippingMethod.toUpperCase(),
+    paymentMethod: paymentMethod.toUpperCase(),
+    user: {
+      nome: formData.nome,
+      cpf: formData.cpf,
+      email: formData.email,
+      telefone: formData.telefone,
+      cep: formData.cep,
+      endereco: formData.endereco,
+      numero: formData.numero,
+      complemento: formData.complemento,
+      bairro: formData.bairro,
+      cidade: formData.cidade,
+      estado: formData.estado,
+    },
+  };
+
+  const customerMessage = generateCustomerOrderMessage(notificationData);
+  const sellerMessage = generateSellerOrderMessage(notificationData);
+  const customerWhatsAppUrl = getWhatsAppUrl(formData.telefone, customerMessage);
+  const sellerWhatsAppUrl = getWhatsAppUrl(STORE_WHATSAPP_NUMBER, sellerMessage);
+
   return (
     <div className="w-full bg-white border clean-border p-8 md:p-12 flex flex-col items-center text-center gap-6 shadow-sm animate-fadeIn">
       <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl font-black">
@@ -1167,6 +1201,55 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
         <p className="text-sm text-gray-600 mt-2 max-w-md mx-auto">
           Obrigado pela sua compra, <strong>{formData.nome}</strong>! Os detalhes do pedido e a Nota Fiscal foram enviados para <strong>{formData.email}</strong>.
         </p>
+      </div>
+
+      {/* SEÇÃO DO BOT DE WHATSAPP */}
+      <div className="w-full max-w-lg bg-emerald-50 border-2 border-emerald-500 p-6 flex flex-col gap-4 rounded-xs text-center shadow-xs">
+        <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🤖</span>
+            <span className="font-black text-sm uppercase tracking-wider text-emerald-900">
+              Bot de Notificação do WhatsApp
+            </span>
+          </div>
+          <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-xs uppercase tracking-wider">
+            Mensagens Prontas
+          </span>
+        </div>
+
+        <p className="text-xs text-gray-700 leading-relaxed text-left">
+          O bot formatou automaticamente os comprovantes e dados de expedição com todos os detalhes da compra:
+        </p>
+
+        <div className="flex flex-col gap-2.5">
+          {/* Botão 1: Enviar Confirmação ao Cliente */}
+          <a
+            href={customerWhatsAppUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full bg-[#25D366] hover:bg-[#1faa4e] text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center justify-center gap-2 rounded-xs"
+          >
+            <span>📱</span>
+            <span>Mandar Mensagem no WhatsApp do Cliente ({formData.telefone})</span>
+          </a>
+
+          {/* Botão 2: Notificar Lojista (Você) */}
+          <a
+            href={sellerWhatsAppUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full bg-black hover:bg-gray-800 text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-sm flex items-center justify-center gap-2 rounded-xs"
+          >
+            <span>🚨</span>
+            <span>Enviar Alerta de Venda para Meu WhatsApp</span>
+          </a>
+        </div>
+
+        <div className="flex items-center justify-center gap-3 text-[10px] text-gray-500 font-bold uppercase pt-1">
+          <span>✓ Sem custo de API externa</span>
+          <span>•</span>
+          <span>✓ Abre direto no WhatsApp Web / App</span>
+        </div>
       </div>
 
       {/* Box de Envio e Rastreamento Físico */}
