@@ -19,6 +19,7 @@ import {
   CardBrand
 } from "@/lib/validation";
 import { getSavedUser, saveUser, saveOrder, UserProfile } from "@/lib/store";
+import { createMercadoPagoPreference } from "@/lib/mercadopago";
 
 type Props = {
   productName: string;
@@ -77,8 +78,19 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
 
   const numeroInputRef = useRef<HTMLInputElement>(null);
 
-  // Carrega dados salvos do usuário se houver
+  // Carrega dados salvos e verifica retorno do Mercado Pago
   useEffect(() => {
+    // Verifica se voltou do Mercado Pago aprovado
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("status") || params.get("collection_status");
+      if (status === "approved") {
+        const paymentId = params.get("payment_id") || `MP-${Math.floor(100000 + Math.random() * 900000)}`;
+        setOrderNumber(paymentId);
+        setStep("success");
+      }
+    }
+
     const saved = getSavedUser();
     if (saved) {
       setFormData((prev) => ({
@@ -317,6 +329,36 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     await new Promise((r) => setTimeout(r, 1500));
     setIsProcessingPayment(false);
     handleCompleteOrder();
+  };
+
+  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real)
+  const handlePayWithMercadoPago = async () => {
+    setPaymentError("");
+    setIsProcessingPayment(true);
+    setProcessingMessage("Gerando cobrança oficial no Mercado Pago com débito bancário real...");
+
+    const pref = await createMercadoPagoPreference({
+      title: productName,
+      price: finalTotal,
+      payer: {
+        nome: formData.nome,
+        email: formData.email,
+        cpf: formData.cpf,
+        telefone: formData.telefone,
+        cep: formData.cep,
+        endereco: formData.endereco,
+        numero: formData.numero,
+        cidade: formData.cidade,
+        estado: formData.estado,
+      },
+    });
+
+    if (pref && pref.init_point) {
+      window.location.href = pref.init_point;
+    } else {
+      setIsProcessingPayment(false);
+      setPaymentError("Não foi possível conectar com o Mercado Pago. Tente novamente.");
+    }
   };
 
   // Concluir pedido
@@ -718,6 +760,43 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             <span className="font-bold text-gray-500 uppercase block">Total a pagar:</span>
             <span className="font-black text-sm text-[#cc0000]">R$ {finalTotal.toFixed(2).replace(".", ",")}</span>
           </div>
+        </div>
+
+        {/* BOTÃO OFICIAL DO MERCADO PAGO - COBRANÇA BANCÁRIA REAL */}
+        <div className="bg-[#009ee3]/10 border-2 border-[#009ee3] p-5 rounded-xs flex flex-col items-center text-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+            <span className="font-black text-sm uppercase text-[#009ee3] tracking-wider">
+              PAGAMENTO REAL VIA MERCADO PAGO
+            </span>
+            <span className="bg-[#009ee3] text-white text-[10px] font-bold px-2 py-0.5 rounded-xs">
+              Débito Real no Banco
+            </span>
+          </div>
+          <p className="text-xs text-gray-700 max-w-md">
+            Pague com seu <strong>Cartão de Crédito Real</strong>, <strong>PIX Oficial</strong> ou <strong>Saldo do Mercado Pago</strong> com cobrança instantânea no seu aplicativo bancário.
+          </p>
+          <button
+            type="button"
+            onClick={handlePayWithMercadoPago}
+            disabled={isProcessingPayment}
+            className="w-full max-w-md bg-[#009ee3] text-white py-3.5 px-6 font-black text-sm uppercase tracking-wider hover:bg-[#007eb5] transition-colors shadow-md flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {isProcessingPayment ? "Conectando ao Mercado Pago..." : `Pagar R$ ${finalTotal.toFixed(2).replace(".", ",")} via Mercado Pago ➔`}
+          </button>
+          <div className="flex items-center gap-3 text-[10px] text-gray-500 font-bold uppercase mt-1">
+            <span>✓ PIX Instantâneo</span>
+            <span>•</span>
+            <span>✓ Cartão em até 12x</span>
+            <span>•</span>
+            <span>✓ Garantia Mercado Pago</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 my-1">
+          <div className="flex-1 h-px bg-gray-200"></div>
+          <span className="text-[11px] font-bold uppercase text-gray-400">Ou use o formulário direto abaixo</span>
+          <div className="flex-1 h-px bg-gray-200"></div>
         </div>
 
         {/* Abas de Pagamento */}
