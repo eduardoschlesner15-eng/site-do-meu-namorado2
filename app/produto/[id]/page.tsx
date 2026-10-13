@@ -5,6 +5,13 @@ type Props = {
   params: Promise<{ id: string }>;
 };
 
+export function generateStaticParams() {
+  return [
+    { id: "n-1-light-style" },
+    { id: "cigarreira-corta-tapa" },
+  ];
+}
+
 export default async function ProductPage({ params }: Props) {
   const { id } = await params;
   const product = await getProductBySlug(id);

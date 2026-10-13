@@ -5,6 +5,13 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
+export function generateStaticParams() {
+  return [
+    { slug: "luminaria" },
+    { slug: "handshop" },
+  ];
+}
+
 export default async function CategoryPage({ params }: Props) {
   const { slug } = await params;
   const products = await getProductsByCategory(slug);

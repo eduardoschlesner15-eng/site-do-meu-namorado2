@@ -6,6 +6,13 @@ type Props = {
   params: Promise<{ slug: string }>;
 };
 
+export function generateStaticParams() {
+  return [
+    { slug: "n-1-light-style" },
+    { slug: "cigarreira-corta-tapa" },
+  ];
+}
+
 export default async function CheckoutPage({ params }: Props) {
   const { slug } = await params;
   const product = await getProductBySlug(slug);

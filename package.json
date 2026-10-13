@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "deploy": "next build && npx firebase-tools deploy",
     "start": "next start",
     "lint": "eslint"
   },

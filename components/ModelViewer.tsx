@@ -74,7 +74,10 @@ function STLModel({ url }: { url: string }) {
 
 export default function ModelViewer({ url, type }: { url: string; type: "stl" | "fbx" }) {
   return (
-    <Canvas camera={{ position: [0, 0, 8], fov: 45 }}>
+    <Canvas 
+      camera={{ position: [0, 0, 8], fov: 45 }}
+      style={{ touchAction: "pan-y" }}
+    >
       <ambientLight intensity={0.5} color="#ffffff" />
       <directionalLight position={[10, 10, 10]} intensity={1.5} color="#ffffff" />
       <directionalLight position={[-10, -10, -10]} intensity={0.8} color="#ffffff" />

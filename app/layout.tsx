@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description: "Loja Oficial - Impressões 3D, Design Industrial e Cultura Hardware.",
 };
 
+import Header from "@/components/Header";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -14,40 +16,7 @@ export default function RootLayout({
   return (
     <html lang="pt-br">
       <body className="antialiased min-h-screen flex flex-col bg-white text-black">
-        
-        {/* Top Promo Bar */}
-        <div className="w-full bg-black text-white text-center py-2 text-xs font-bold tracking-widest uppercase">
-          FRETE GRÁTIS EM COMPRAS ACIMA DE R$ 199,00
-        </div>
-
-        {/* Main Header */}
-        <header className="w-full border-b clean-border bg-white z-50 sticky top-0">
-          <div className="max-w-7xl mx-auto flex justify-between items-center px-4 md:px-8 h-20">
-            {/* Left: Mobile Menu Icon / Search */}
-            <div className="flex-1 flex gap-4 items-center">
-              <span className="cursor-pointer hover:text-gray-500 font-medium text-sm hidden md:block">BUSCAR</span>
-              <span className="cursor-pointer md:hidden font-bold">☰</span>
-            </div>
-
-            {/* Center: Logo */}
-            <a href="/" className="text-xl md:text-3xl font-black tracking-tighter text-black uppercase text-center flex-1">
-              A_LOJA_DO_MEU_NAMORADO
-            </a>
-            
-            {/* Right: Cart & Account */}
-            <div className="flex-1 flex gap-6 items-center justify-end text-sm font-medium">
-              <span className="hidden md:block cursor-pointer hover:text-gray-500">ENTRAR</span>
-              <span className="cursor-pointer hover:text-gray-500 font-bold">CARRINHO (0)</span>
-            </div>
-          </div>
-          
-          {/* Main Navigation */}
-          <nav className="hidden md:flex justify-center gap-10 text-sm font-bold tracking-wider px-8 py-3 border-t clean-border">
-            <a href="/categoria/luminaria" className="hover:text-[#cc0000] transition-colors uppercase">Luminárias</a>
-            <a href="/categoria/handshop" className="hover:text-[#cc0000] transition-colors uppercase">Handshop</a>
-            <a href="/" className="text-[#cc0000] hover:text-black transition-colors uppercase">Lançamentos</a>
-          </nav>
-        </header>
+        <Header />
 
         <main className="flex-1 flex flex-col">
           {children}
