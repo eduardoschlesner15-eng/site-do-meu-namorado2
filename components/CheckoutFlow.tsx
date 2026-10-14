@@ -40,6 +40,16 @@ import {
 } from "@/lib/pix";
 import ModelViewer from "@/components/ModelViewer";
 import EvolutionConfigModal from "@/components/EvolutionConfigModal";
+import PaymentBadgesRow, { 
+  PixBadge, 
+  MercadoPagoBadge, 
+  VisaBadge, 
+  MastercardBadge, 
+  EloBadge, 
+  HipercardBadge, 
+  AmexBadge, 
+  PayPalBadge 
+} from "@/components/PaymentLogos";
 
 type Props = {
   productName: string;
@@ -1407,15 +1417,15 @@ export default function CheckoutFlow({
                       </span>
                     </div>
 
-                    {/* Bandeiras de Cartão (Estilo Vans Image 2 Footer) */}
+                    {/* Bandeiras de Cartão com Logos Reais */}
                     <div className="flex flex-col gap-2">
                       <span className="text-[11px] font-bold uppercase text-neutral-500">Bandeiras Aceitas:</span>
-                      <div className="flex flex-wrap gap-2">
-                        {["VISA", "MASTERCARD", "ELO", "HIPERCARD", "AMEX"].map((flag) => (
-                          <span key={flag} className="bg-white border border-neutral-300 px-2.5 py-1 text-[11px] font-black text-neutral-800 rounded-xs shadow-2xs">
-                            {flag}
-                          </span>
-                        ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <VisaBadge />
+                        <MastercardBadge />
+                        <EloBadge />
+                        <HipercardBadge />
+                        <AmexBadge />
                       </div>
                     </div>
 
@@ -1621,13 +1631,7 @@ export default function CheckoutFlow({
           <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
             Formas de Pagamento:
           </span>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {["PIX", "MERCADO PAGO", "VISA", "MASTERCARD", "ELO", "HIPERCARD", "AMEX", "PAYPAL"].map((brand) => (
-              <span key={brand} className="bg-neutral-800 border border-neutral-700 px-2.5 py-1 text-[10px] font-black tracking-wider text-neutral-200 rounded-xs">
-                {brand}
-              </span>
-            ))}
-          </div>
+          <PaymentBadgesRow />
         </div>
 
         <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
