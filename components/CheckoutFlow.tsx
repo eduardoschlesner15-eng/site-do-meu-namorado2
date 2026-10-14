@@ -65,10 +65,9 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   // Opções de envio físico (Correios)
   const [shippingMethod, setShippingMethod] = useState<"pac" | "sedex">("pac");
   
-  // Método de pagamento (4 métodos exclusivos solicitados)
-  const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "boleto" | "paypal">("pix");
+  // Método de pagamento (3 métodos exclusivos: Pix, Cartão Mercado Pago, PayPal)
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "paypal">("pix");
   const [copiedPix, setCopiedPix] = useState(false);
-  const [copiedBoleto, setCopiedBoleto] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
 
   // Processamento e autenticação bancária
@@ -333,15 +332,6 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     handleCompleteOrder("PIX");
   };
 
-  // Processamento com Boleto Bancário
-  const handlePayWithBoleto = async () => {
-    setIsProcessingPayment(true);
-    setProcessingMessage("Registrando boleto bancário para o seu pedido...");
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsProcessingPayment(false);
-    handleCompleteOrder("BOLETO");
-  };
-
   // Processamento com PayPal
   const handlePayWithPayPal = async () => {
     setIsProcessingPayment(true);
@@ -388,11 +378,11 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   };
 
   // Concluir pedido
-  const handleCompleteOrder = (methodOverride?: "PIX" | "CARTAO" | "BOLETO" | "PAYPAL") => {
+  const handleCompleteOrder = (methodOverride?: "PIX" | "CARTAO" | "PAYPAL") => {
     const generatedOrder = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
     setOrderNumber(generatedOrder);
 
-    const chosenPaymentMethod = (methodOverride || paymentMethod.toUpperCase()) as "PIX" | "CARTAO" | "BOLETO" | "PAYPAL";
+    const chosenPaymentMethod = (methodOverride || paymentMethod.toUpperCase()) as "PIX" | "CARTAO" | "PAYPAL";
 
     saveOrder({
       id: generatedOrder,
@@ -436,14 +426,6 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     navigator.clipboard.writeText(pixPayload);
     setCopiedPix(true);
     setTimeout(() => setCopiedPix(false), 3000);
-  };
-
-  const boletoCode = "34191.79001 01043.510047 91020.150008 8 98760000001000";
-
-  const handleCopyBoleto = () => {
-    navigator.clipboard.writeText(boletoCode.replace(/\s+/g, ""));
-    setCopiedBoleto(true);
-    setTimeout(() => setCopiedBoleto(false), 3000);
   };
 
   // ==================== TELA 1: DADOS E ENTREGA ====================
@@ -809,14 +791,14 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
           </div>
         </div>
 
-        {/* Abas de Pagamento Selecionáveis (Exatamente as 4 formas solicitadas) */}
+        {/* Abas de Pagamento Selecionáveis (Pix, Cartão Mercado Pago, PayPal) */}
         <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-b clean-border pb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 border-b clean-border pb-4">
             {/* 1. PIX Direto */}
             <button
               type="button"
               onClick={() => setPaymentMethod("pix")}
-              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`py-3.5 px-3 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "pix"
                   ? "border-black bg-black text-white shadow-xs"
                   : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
@@ -826,7 +808,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 <span className="text-sm">💠</span>
                 <span>PIX Direto</span>
               </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "pix" ? "bg-emerald-400 text-black" : "bg-emerald-100 text-emerald-800"}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-xs font-bold ${paymentMethod === "pix" ? "bg-emerald-400 text-black" : "bg-emerald-100 text-emerald-800"}`}>
                 5% de Desconto
               </span>
             </button>
@@ -835,7 +817,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             <button
               type="button"
               onClick={() => setPaymentMethod("cartao")}
-              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`py-3.5 px-3 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "cartao"
                   ? "border-[#009ee3] bg-[#009ee3] text-white shadow-xs"
                   : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
@@ -845,35 +827,16 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 <span className="text-sm">💳</span>
                 <span>Cartão</span>
               </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "cartao" ? "bg-white text-[#009ee3]" : "bg-blue-50 text-[#009ee3]"}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-xs font-bold ${paymentMethod === "cartao" ? "bg-white text-[#009ee3]" : "bg-blue-50 text-[#009ee3]"}`}>
                 Mercado Pago
               </span>
             </button>
 
-            {/* 3. Boleto Bancário */}
-            <button
-              type="button"
-              onClick={() => setPaymentMethod("boleto")}
-              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
-                paymentMethod === "boleto"
-                  ? "border-black bg-black text-white shadow-xs"
-                  : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm">📄</span>
-                <span>Boleto</span>
-              </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "boleto" ? "bg-gray-200 text-black" : "bg-gray-100 text-gray-600"}`}>
-                Bancário
-              </span>
-            </button>
-
-            {/* 4. PayPal */}
+            {/* 3. PayPal */}
             <button
               type="button"
               onClick={() => setPaymentMethod("paypal")}
-              className={`py-3.5 px-2 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+              className={`py-3.5 px-3 font-black text-xs uppercase tracking-wider border text-center transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
                 paymentMethod === "paypal"
                   ? "border-[#003087] bg-[#003087] text-white shadow-xs"
                   : "border-gray-200 text-gray-700 hover:border-gray-400 bg-white"
@@ -883,7 +846,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 <span className="text-sm">🅿️</span>
                 <span>PayPal</span>
               </div>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-xs font-bold ${paymentMethod === "paypal" ? "bg-[#ffc439] text-[#003087]" : "bg-amber-100 text-amber-900"}`}>
+              <span className={`text-[10px] px-2 py-0.5 rounded-xs font-bold ${paymentMethod === "paypal" ? "bg-[#ffc439] text-[#003087]" : "bg-amber-100 text-amber-900"}`}>
                 Global
               </span>
             </button>
@@ -1181,68 +1144,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             </div>
           )}
 
-          {/* ================= ABA 3: BOLETO BANCÁRIO ================= */}
-          {paymentMethod === "boleto" && (
-            <div className="flex flex-col items-center text-center gap-5 py-4 animate-fadeIn max-w-xl mx-auto w-full">
-              <div className="bg-gray-100 border border-gray-300 text-gray-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
-                <span>📄</span>
-                <span>Boleto Bancário à Vista • Vencimento em 3 dias úteis</span>
-              </div>
-
-              {/* Representação visual do código de barras */}
-              <div className="w-full bg-white border border-gray-300 p-5 rounded-xs flex flex-col items-center gap-3 shadow-xs">
-                <div className="flex items-center justify-center gap-1 h-12 w-full max-w-sm overflow-hidden opacity-80">
-                  {[2, 4, 1, 3, 2, 5, 1, 2, 4, 2, 3, 1, 4, 2, 1, 3, 2, 4, 1, 5, 2, 3, 1, 4, 2, 1, 3, 2, 4, 1, 3, 2, 5, 1, 2, 4].map((w, idx) => (
-                    <div 
-                      key={idx} 
-                      className="h-full bg-black" 
-                      style={{ width: `${w * 2}px` }}
-                    />
-                  ))}
-                </div>
-
-                <div className="w-full flex flex-col gap-1.5 mt-2 text-left">
-                  <span className="text-[11px] font-bold text-gray-500 uppercase">Linha Digitável do Boleto:</span>
-                  <div className="flex border border-gray-300 rounded-xs overflow-hidden">
-                    <input 
-                      type="text" 
-                      readOnly 
-                      value={boletoCode} 
-                      className="w-full px-3 py-2 text-xs font-mono text-gray-700 bg-gray-50 outline-none truncate"
-                    />
-                    <button 
-                      type="button"
-                      onClick={handleCopyBoleto}
-                      className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
-                    >
-                      {copiedBoleto ? "Copiado! ✓" : "Copiar"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Informações de Compensação */}
-              <div className="w-full bg-gray-50 border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
-                <span className="font-bold text-black uppercase text-[11px]">Informações do Boleto:</span>
-                <ul className="space-y-1 text-gray-600 list-disc list-inside">
-                  <li>Pagável em qualquer banco, lotérica ou via Internet Banking.</li>
-                  <li>O pagamento pode levar de <strong>1 a 2 dias úteis</strong> para ser compensado pelo banco.</li>
-                  <li>Assim que a compensação for confirmada, o pedido físico será expedido via <strong>{shippingMethod.toUpperCase()}</strong>.</li>
-                </ul>
-              </div>
-
-              <button 
-                type="button"
-                onClick={handlePayWithBoleto}
-                disabled={isProcessingPayment}
-                className="w-full bg-black hover:bg-[#cc0000] text-white py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-md cursor-pointer"
-              >
-                {isProcessingPayment ? "Registrando pedido..." : `Concluir Pedido com Boleto (R$ ${finalTotal.toFixed(2).replace(".", ",")}) ➔`}
-              </button>
-            </div>
-          )}
-
-          {/* ================= ABA 4: PAYPAL ================= */}
+          {/* ================= ABA 3: PAYPAL ================= */}
           {paymentMethod === "paypal" && (
             <div className="flex flex-col items-center text-center gap-5 py-4 animate-fadeIn max-w-xl mx-auto w-full">
               <div className="bg-[#003087]/10 border border-[#003087]/30 text-[#003087] text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
