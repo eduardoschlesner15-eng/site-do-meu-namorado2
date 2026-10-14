@@ -99,6 +99,7 @@ export default function CheckoutFlow({
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "paypal">("pix");
   const [copiedPix, setCopiedPix] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
+  const [orderStatus, setOrderStatus] = useState<"APROVADO" | "AGUARDANDO_PAGAMENTO">("AGUARDANDO_PAGAMENTO");
 
   // Estado da Automação Evolution API (WhatsApp)
   const [evolutionModalOpen, setEvolutionModalOpen] = useState(false);
@@ -122,13 +123,16 @@ export default function CheckoutFlow({
   const [customPixKey, setCustomPixKey] = useState("");
 
   // Carrega dados salvos e verifica retorno do Mercado Pago
+  const mpHandledRef = useRef(false);
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && !mpHandledRef.current) {
       const params = new URLSearchParams(window.location.search);
       const status = params.get("status") || params.get("collection_status");
       if (status === "approved") {
+        mpHandledRef.current = true;
         const paymentId = params.get("payment_id") || `MP-${Math.floor(100000 + Math.random() * 900000)}`;
         setOrderNumber(paymentId);
+        setOrderStatus("APROVADO");
         setStep("success");
       }
     }
@@ -394,22 +398,22 @@ export default function CheckoutFlow({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Processamento com PIX
+  // Processamento com PIX Manual (Chave Pix da Loja)
   const handlePayWithPix = async () => {
     setIsProcessingPayment(true);
-    setProcessingMessage("Confirmando recebimento instantâneo via Pix...");
-    await new Promise((r) => setTimeout(r, 1200));
+    setProcessingMessage("Registrando pedido Pix e preparando comprovante...");
+    await new Promise((r) => setTimeout(r, 1000));
     setIsProcessingPayment(false);
-    handleCompleteOrder("PIX");
+    handleCompleteOrder("PIX", "AGUARDANDO_PAGAMENTO");
   };
 
   // Processamento com PayPal
   const handlePayWithPayPal = async () => {
     setIsProcessingPayment(true);
     setProcessingMessage("Conectando de forma segura ao PayPal...");
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 1000));
     setIsProcessingPayment(false);
-    handleCompleteOrder("PAYPAL");
+    handleCompleteOrder("PAYPAL", "AGUARDANDO_PAGAMENTO");
   };
 
   // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real no Cartão ou Pix Oficial)
@@ -448,12 +452,22 @@ export default function CheckoutFlow({
     }
   };
 
-  // Concluir pedido
-  const handleCompleteOrder = async (methodOverride?: "PIX" | "CARTAO" | "PAYPAL") => {
+  // Concluir pedido com status rigoroso (evita confirmar venda antes do pagamento)
+  const handleCompleteOrder = async (
+    methodOverride?: "PIX" | "CARTAO" | "PAYPAL",
+    statusOverride?: "APROVADO" | "AGUARDANDO_PAGAMENTO"
+  ) => {
     const generatedOrder = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
     setOrderNumber(generatedOrder);
 
     const chosenPaymentMethod = (methodOverride || paymentMethod.toUpperCase()) as "PIX" | "CARTAO" | "PAYPAL";
+
+    // Regra estrita: Pix manual ou sem webhook instantâneo é SEMPRE "AGUARDANDO_PAGAMENTO".
+    // Somente pagamentos com confirmação bancária externa explícita são "APROVADO".
+    const finalStatus: "APROVADO" | "AGUARDANDO_PAGAMENTO" =
+      statusOverride ?? (chosenPaymentMethod === "PIX" ? "AGUARDANDO_PAGAMENTO" : "APROVADO");
+
+    setOrderStatus(finalStatus);
 
     const notificationPayload: OrderNotificationData = {
       id: generatedOrder,
@@ -463,6 +477,7 @@ export default function CheckoutFlow({
       total: finalTotal,
       shippingMethod: shippingMethod.toUpperCase(),
       paymentMethod: chosenPaymentMethod,
+      status: finalStatus,
       user: {
         nome: formData.nome,
         cpf: formData.cpf,
@@ -509,7 +524,7 @@ export default function CheckoutFlow({
         cidade: formData.cidade,
         estado: formData.estado,
       },
-      status: "APROVADO",
+      status: finalStatus,
     });
 
     setStep("success");
@@ -550,7 +565,9 @@ export default function CheckoutFlow({
 
   // ==================== TELA 3: SUCESSO ====================
   if (step === "success") {
-    const notificationData = {
+    const isPendingPix = orderStatus === "AGUARDANDO_PAGAMENTO";
+
+    const notificationData: OrderNotificationData = {
       id: orderNumber || "ORD-RECENTE",
       productName,
       subtotal: basePriceNum,
@@ -558,6 +575,7 @@ export default function CheckoutFlow({
       total: finalTotal,
       shippingMethod: shippingMethod.toUpperCase(),
       paymentMethod: paymentMethod.toUpperCase(),
+      status: orderStatus,
       user: {
         nome: formData.nome,
         cpf: formData.cpf,
@@ -580,21 +598,55 @@ export default function CheckoutFlow({
 
     return (
       <div className="w-full bg-white border border-neutral-200 p-8 md:p-14 flex flex-col items-center text-center gap-6 shadow-xs animate-fadeIn max-w-3xl mx-auto">
-        <div className="w-16 h-16 bg-neutral-900 text-white rounded-full flex items-center justify-center text-2xl font-black">
-          ✓
-        </div>
+        {isPendingPix ? (
+          <div className="w-16 h-16 bg-amber-500 text-white rounded-full flex items-center justify-center text-3xl font-black shadow-sm">
+            ⏳
+          </div>
+        ) : (
+          <div className="w-16 h-16 bg-neutral-900 text-white rounded-full flex items-center justify-center text-2xl font-black">
+            ✓
+          </div>
+        )}
 
         <div>
-          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xs border border-emerald-200">
-            Pagamento Aprovado
-          </span>
-          <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-neutral-900 mt-3 font-sans">
-            Pedido #{orderNumber} Confirmado
-          </h2>
-          <p className="text-xs text-neutral-600 mt-2 max-w-md mx-auto">
-            Obrigado pela sua compra, <strong>{formData.nome}</strong>! Os detalhes e nota do pedido foram enviados para <strong>{formData.email}</strong>.
-          </p>
+          {isPendingPix ? (
+            <>
+              <span className="text-[11px] font-black uppercase tracking-widest text-amber-800 bg-amber-50 px-3 py-1 rounded-xs border border-amber-300 inline-block">
+                Aguardando Confirmação do Pix
+              </span>
+              <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-neutral-900 mt-3 font-sans">
+                Pedido #{orderNumber} Registrado!
+              </h2>
+              <p className="text-xs text-neutral-600 mt-2 max-w-md mx-auto leading-relaxed">
+                Olá, <strong>{formData.nome}</strong>! Recebemos o seu pedido. Para liberarmos a fabricação e envio nos Correios, por favor envie o comprovante de transferência do Pix pelo WhatsApp.
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xs border border-emerald-200 inline-block">
+                Pagamento Aprovado
+              </span>
+              <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-neutral-900 mt-3 font-sans">
+                Pedido #{orderNumber} Confirmado
+              </h2>
+              <p className="text-xs text-neutral-600 mt-2 max-w-md mx-auto leading-relaxed">
+                Obrigado pela sua compra, <strong>{formData.nome}</strong>! Pagamento confirmado e pedido liberado para expedição. Os detalhes foram enviados para <strong>{formData.email}</strong>.
+              </p>
+            </>
+          )}
         </div>
+
+        {/* Alerta de Envio de Comprovante para Pix Pendente */}
+        {isPendingPix && (
+          <div className="w-full max-w-lg bg-amber-50/90 border border-amber-300 p-4 rounded-xs text-left text-xs flex flex-col gap-2">
+            <span className="font-black text-amber-900 uppercase text-[11px] flex items-center gap-1.5">
+              <span>⚠️</span> Próximo Passo para Produção e Envio:
+            </span>
+            <p className="text-amber-800 leading-relaxed text-[11.5px]">
+              Se você já realizou o Pix de <strong>R$ {finalTotal.toFixed(2).replace(".", ",")}</strong> pelo seu banco, clique no botão verde abaixo para <strong>enviar o comprovante à loja pelo WhatsApp</strong>. Assim que identificarmos a entrada na conta, seu pedido começará a ser impresso!
+            </p>
+          </div>
+        )}
 
         {/* Notificações WhatsApp & Evolution API */}
         <div className="w-full max-w-lg bg-neutral-50 border border-neutral-300 p-6 flex flex-col gap-4 rounded-xs text-left">
@@ -630,7 +682,11 @@ export default function CheckoutFlow({
               <span className="text-sm">✅</span>
               <div>
                 <p className="font-black uppercase text-[10px] text-emerald-800 tracking-wider">Disparo Automático Concluído</p>
-                <p className="font-medium mt-0.5">Comprovante enviado automaticamente para o WhatsApp (+{formData.telefone}) e alerta enviado à loja!</p>
+                <p className="font-medium mt-0.5">
+                  {isPendingPix
+                    ? `Instruções de Pix enviadas para o WhatsApp (+${formData.telefone}) e alerta de conferência enviado à loja!`
+                    : `Comprovante de pagamento aprovado enviado para o WhatsApp (+${formData.telefone}) e alerta enviado à loja!`}
+                </p>
               </div>
             </div>
           )}
@@ -671,25 +727,51 @@ export default function CheckoutFlow({
 
           {/* Botões de Ação Direta (Fallback) */}
           <div className="flex flex-col gap-2.5 pt-1">
-            <a
-              href={customerWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-[#25D366] hover:bg-[#20b859] text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
-            >
-              <span>📱</span>
-              <span>Enviar Comprovante no WhatsApp do Cliente ({formData.telefone})</span>
-            </a>
+            {isPendingPix ? (
+              <>
+                <a
+                  href={sellerWhatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#20b859] text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
+                >
+                  <span>📄</span>
+                  <span>Enviar Comprovante do Pix no WhatsApp da Loja</span>
+                </a>
 
-            <a
-              href={sellerWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full bg-black hover:bg-neutral-800 text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
-            >
-              <span>🚨</span>
-              <span>Enviar Alerta de Venda para o Meu WhatsApp</span>
-            </a>
+                <a
+                  href={customerWhatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-neutral-900 hover:bg-black text-white py-3 px-4 font-bold text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
+                >
+                  <span>📱</span>
+                  <span>Abrir Detalhes do Pedido no meu WhatsApp ({formData.telefone})</span>
+                </a>
+              </>
+            ) : (
+              <>
+                <a
+                  href={customerWhatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#25D366] hover:bg-[#20b859] text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
+                >
+                  <span>📱</span>
+                  <span>Enviar Confirmação no WhatsApp do Cliente ({formData.telefone})</span>
+                </a>
+
+                <a
+                  href={sellerWhatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-black hover:bg-neutral-800 text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors shadow-xs flex items-center justify-center gap-2 rounded-xs"
+                >
+                  <span>🚨</span>
+                  <span>Enviar Alerta de Venda para o Meu WhatsApp</span>
+                </a>
+              </>
+            )}
           </div>
         </div>
 
@@ -1373,29 +1455,58 @@ export default function CheckoutFlow({
                   )}
 
                   {/* Botões de Ação Pix */}
-                  <div className="w-full flex flex-col gap-2.5 pt-2">
-                    <button 
-                      type="button"
-                      onClick={handlePayWithPix}
-                      disabled={isProcessingPayment || isPixExpired}
-                      className={`w-full py-4 font-black text-xs uppercase tracking-widest transition-colors shadow-sm cursor-pointer rounded-xs ${
-                        isPixExpired 
-                          ? "bg-neutral-200 text-neutral-400 cursor-not-allowed" 
-                          : "bg-black hover:bg-neutral-800 text-white"
-                      }`}
-                    >
-                      {isProcessingPayment ? "Confirmando recebimento..." : "Confirmar Pagamento Realizado ✓"}
-                    </button>
+                  <div className="w-full flex flex-col gap-3 pt-2">
+                    {/* Opção 1: Pix Oficial Mercado Pago (Aprovação Automática Instantânea) */}
+                    <div className="p-4 bg-emerald-50/70 border border-emerald-300 rounded-xs flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase text-emerald-900 tracking-wider flex items-center gap-1.5">
+                          <span>⚡</span> Aprovação Instantânea
+                        </span>
+                        <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-xs uppercase">
+                          Recomendado
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-800 leading-relaxed text-left">
+                        Gere o QR Code oficial do Banco Central via Mercado Pago. O pagamento é auditado em 3 segundos e seu pedido é aprovado na hora.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handlePayWithMercadoPago(true)}
+                        disabled={isProcessingPayment}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer flex items-center justify-center gap-2 shadow-xs mt-1"
+                      >
+                        <span>⚡</span>
+                        <span>{isProcessingPayment ? "Conectando ao Mercado Pago..." : `Pagar R$ ${finalTotal.toFixed(2).replace(".", ",")} com Pix Automático ➔`}</span>
+                      </button>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handlePayWithMercadoPago(true)}
-                      disabled={isProcessingPayment}
-                      className="w-full bg-white hover:bg-neutral-50 border border-neutral-300 text-neutral-800 py-3 px-4 font-bold text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <span>⚡</span>
-                      <span>Ou Pagar via Checkout Oficial do Mercado Pago ➔</span>
-                    </button>
+                    {/* Divisor */}
+                    <div className="relative flex py-1 items-center">
+                      <div className="flex-grow border-t border-neutral-300"></div>
+                      <span className="shrink mx-4 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+                        Ou transferência manual por Chave Pix
+                      </span>
+                      <div className="flex-grow border-t border-neutral-300"></div>
+                    </div>
+
+                    {/* Opção 2: Já transferiu pela chave manual */}
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <p className="text-[11px] text-neutral-600">
+                        Transferiu pelo aplicativo do seu banco usando a chave acima? Clique abaixo para registrar o pedido e nos enviar o comprovante:
+                      </p>
+                      <button 
+                        type="button"
+                        onClick={handlePayWithPix}
+                        disabled={isProcessingPayment || isPixExpired}
+                        className={`w-full py-3.5 font-black text-xs uppercase tracking-wider transition-colors border rounded-xs cursor-pointer ${
+                          isPixExpired 
+                            ? "bg-neutral-200 text-neutral-400 border-neutral-300 cursor-not-allowed" 
+                            : "bg-white hover:bg-neutral-100 text-neutral-900 border-neutral-900 shadow-xs"
+                        }`}
+                      >
+                        {isProcessingPayment ? "Registrando pedido..." : "Já fiz o Pix pela Chave (Enviar Comprovante) 📄"}
+                      </button>
+                    </div>
                   </div>
 
                 </div>
@@ -1487,7 +1598,7 @@ export default function CheckoutFlow({
                         onApprove={async (data, actions) => {
                           if (actions.order) {
                             await actions.order.capture();
-                            handleCompleteOrder("PAYPAL");
+                            handleCompleteOrder("PAYPAL", "APROVADO");
                           }
                         }}
                       />

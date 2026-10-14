@@ -16,6 +16,7 @@ export type OrderNotificationData = {
   total: number;
   shippingMethod: string;
   paymentMethod: string;
+  status?: "APROVADO" | "AGUARDANDO_PAGAMENTO";
   user: {
     nome: string;
     cpf?: string;
@@ -48,17 +49,42 @@ export function formatWhatsAppNumber(phone: string): string {
  */
 export function generateCustomerOrderMessage(data: OrderNotificationData): string {
   const firstName = data.user.nome.split(" ")[0] || "Cliente";
+  const isPending = data.status === "AGUARDANDO_PAGAMENTO";
 
-  return `🛍️ *A LOJA DO MEU NAMORADO - PEDIDO CONFIRMADO!*
+  if (isPending) {
+    return `🕒 *A LOJA DO MEU NAMORADO - PEDIDO REGISTRADO!*
 
-Olá, *${firstName}*! Muito obrigado por comprar conosco! Seu pedido foi registrado com sucesso.
+Olá, *${firstName}*! Recebemos o seu pedido #${data.id}.
 
-📋 *DETALHES DO PEDIDO #${data.id}*
+⚠️ *STATUS: AGUARDANDO CONFIRMAÇÃO DO PIX*
+
+📋 *DETALHES DO PEDIDO:*
 • *Produto:* ${data.productName} (1x)
 • *Subtotal:* R$ ${data.subtotal.toFixed(2).replace(".", ",")}
 • *Frete:* R$ ${data.frete.toFixed(2).replace(".", ",")} (${data.shippingMethod})
-• *TOTAL:* R$ ${data.total.toFixed(2).replace(".", ",")}
-• *Pagamento:* ${data.paymentMethod}
+• *VALOR DO PIX:* R$ ${data.total.toFixed(2).replace(".", ",")}
+• *Forma:* Chave Pix Direta
+
+📦 *ENDEREÇO DE ENTREGA (Correios):*
+${data.user.endereco || ""}, Nº ${data.user.numero || ""}${data.user.complemento ? ` (${data.user.complemento})` : ""}
+${data.user.bairro ? `${data.user.bairro} - ` : ""}${data.user.cidade || ""}/${data.user.estado || ""}
+CEP: ${data.user.cep || ""}
+
+⏳ *IMPORTANTE:*
+A fabricação e o envio nos Correios só iniciam após a identificação do pagamento na conta da loja.
+Se você já realizou o Pix pelo aplicativo do seu banco, por favor *responda a esta mensagem enviando o comprovante em foto ou PDF* para conferirmos e liberarmos seu pedido imediatamente! 🧾`;
+  }
+
+  return `✅ *A LOJA DO MEU NAMORADO - PAGAMENTO APROVADO!*
+
+Olá, *${firstName}*! O seu pagamento foi confirmado e o pedido #${data.id} foi aprovado com sucesso!
+
+📋 *DETALHES DO PEDIDO APROVADO:*
+• *Produto:* ${data.productName} (1x)
+• *Subtotal:* R$ ${data.subtotal.toFixed(2).replace(".", ",")}
+• *Frete:* R$ ${data.frete.toFixed(2).replace(".", ",")} (${data.shippingMethod})
+• *TOTAL PAGO:* R$ ${data.total.toFixed(2).replace(".", ",")}
+• *Pagamento:* ${data.paymentMethod} (Aprovado)
 
 📦 *ENDEREÇO DE ENTREGA (Correios):*
 ${data.user.endereco || ""}, Nº ${data.user.numero || ""}${data.user.complemento ? ` (${data.user.complemento})` : ""}
@@ -66,19 +92,44 @@ ${data.user.bairro ? `${data.user.bairro} - ` : ""}${data.user.cidade || ""}/${d
 CEP: ${data.user.cep || ""}
 
 🚚 *PRAZO E ENVIO:*
-Seu produto físico já está na fila de fabricação e expedição. Assim que for postado nos Correios, nós enviaremos o código de rastreamento por aqui!
-
-Ficou com alguma dúvida? Basta responder a esta mensagem. Tenha um ótimo dia! ✨`;
+Seu produto já entrou na fila de separação e expedição física. Assim que for postado nos Correios, nós enviaremos o código de rastreamento por aqui! ✨`;
 }
 
 /**
  * Gera mensagem formatada para o LOJISTA (Alerta de Nova Venda para Expedição)
  */
 export function generateSellerOrderMessage(data: OrderNotificationData): string {
-  return `🚨 *NOVA VENDA CONFIRMADA NO SITE!* 🚨
+  const isPending = data.status === "AGUARDANDO_PAGAMENTO";
+
+  if (isPending) {
+    return `⚠️ *NOVO PEDIDO REGISTRADO - PIX PENDENTE DE CONFERÊNCIA!* ⚠️
 
 📦 *Pedido:* #${data.id}
-💰 *Total Pago:* R$ ${data.total.toFixed(2).replace(".", ",")} (${data.paymentMethod})
+💰 *Valor Esperado:* R$ ${data.total.toFixed(2).replace(".", ",")} (PIX DIRETO)
+
+🛑 *ATENÇÃO LOJISTA:*
+O comprador informou que realizou o Pix, mas o valor *AINDA NÃO FOI AUDITADO AUTOMATICAMENTE*.
+👉 *NÃO DESPACHE NEM POSTE NOS CORREIOS* até verificar se os R$ ${data.total.toFixed(2).replace(".", ",")} realmente caíram no extrato bancário da sua conta ou até ele apresentar o comprovante autêntico!
+
+👤 *DADOS DO COMPRADOR:*
+• *Nome:* ${data.user.nome}
+• *CPF:* ${data.user.cpf || "Não informado"}
+• *WhatsApp:* ${data.user.telefone}
+• *E-mail:* ${data.user.email}
+
+📍 *ENDEREÇO DE EXPEDIÇÃO APÓS CONFERÊNCIA:*
+• *Logradouro:* ${data.user.endereco || ""}, Nº ${data.user.numero || ""}
+${data.user.complemento ? `• *Complemento:* ${data.user.complemento}\n` : ""}• *Bairro:* ${data.user.bairro || ""}
+• *Cidade/UF:* ${data.user.cidade || ""}/${data.user.estado || ""}
+• *CEP:* ${data.user.cep || ""}
+
+⚡ *AÇÃO:* Aguardar comprovante ou conferir extrato bancário antes de produzir/enviar.`;
+  }
+
+  return `🎉 *PAGAMENTO APROVADO - LIBERADO PARA EXPEDIÇÃO!* 🚨
+
+📦 *Pedido:* #${data.id}
+💰 *Total Pago e Confirmado:* R$ ${data.total.toFixed(2).replace(".", ",")} (${data.paymentMethod})
 
 🛒 *PRODUTO VENDIDO:*
 • *Item:* ${data.productName} (1 unidade)
