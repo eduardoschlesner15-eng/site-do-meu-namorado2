@@ -1,5 +1,6 @@
 import { getProductBySlug } from "@/lib/data";
 import ModelViewer from "@/components/ModelViewer";
+import AddToCartButton from "@/components/AddToCartButton";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -65,12 +66,17 @@ export default async function ProductPage({ params }: Props) {
           </div>
         </div>
 
-        <a 
-          href={`/checkout/${product.slug}`}
-          className="text-center mt-6 bg-black text-white py-4 font-bold uppercase tracking-wider hover:bg-[#cc0000] transition-colors w-full shadow-lg"
-        >
-          COMPRAR AGORA
-        </a>
+        <AddToCartButton 
+          product={{
+            id: product.id,
+            name: product.name,
+            slug: product.slug,
+            fileType: product.fileType,
+            fileUrl: product.fileUrl,
+            category: product.category,
+            price: 39.9,
+          }} 
+        />
         
         <div className="text-xs text-gray-500 text-center uppercase tracking-widest mt-2 flex items-center justify-center gap-1.5">
           <span>🚚</span> Envio para todo o Brasil via Correios com Rastreio

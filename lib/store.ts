@@ -90,6 +90,7 @@ export function addToCart(item: CartItem): void {
   }
   localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
   window.dispatchEvent(new Event("cart_updated"));
+  openCartDrawer();
 }
 
 export function removeFromCart(id: string): void {
@@ -97,6 +98,31 @@ export function removeFromCart(id: string): void {
   const items = getCartItems().filter((i) => i.id !== id);
   localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
   window.dispatchEvent(new Event("cart_updated"));
+}
+
+export function updateCartQuantity(id: string, quantity: number): void {
+  if (typeof window === "undefined") return;
+  let items = getCartItems();
+  if (quantity <= 0) {
+    items = items.filter((i) => i.id !== id);
+  } else {
+    const item = items.find((i) => i.id === id);
+    if (item) {
+      item.quantity = quantity;
+    }
+  }
+  localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+  window.dispatchEvent(new Event("cart_updated"));
+}
+
+export function openCartDrawer(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("open_cart_drawer"));
+}
+
+export function closeCartDrawer(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("close_cart_drawer"));
 }
 
 export function clearCart(): void {

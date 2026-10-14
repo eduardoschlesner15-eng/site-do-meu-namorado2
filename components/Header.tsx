@@ -3,23 +3,37 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import AuthModal from "./AuthModal";
-import { getSavedUser, UserProfile } from "@/lib/store";
+import { getSavedUser, getCartItems, openCartDrawer, UserProfile } from "@/lib/store";
 
 export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     setCurrentUser(getSavedUser());
+
+    const updateCount = () => {
+      const items = getCartItems();
+      const count = items.reduce((acc, i) => acc + i.quantity, 0);
+      setCartCount(count);
+    };
+
+    updateCount();
 
     const handleUserUpdate = () => {
       setCurrentUser(getSavedUser());
     };
 
     window.addEventListener("user_updated", handleUserUpdate);
-    return () => window.removeEventListener("user_updated", handleUserUpdate);
+    window.addEventListener("cart_updated", updateCount);
+
+    return () => {
+      window.removeEventListener("user_updated", handleUserUpdate);
+      window.removeEventListener("cart_updated", updateCount);
+    };
   }, []);
 
   return (
@@ -69,15 +83,17 @@ export default function Header() {
             >
               {currentUser ? `OLÁ, ${currentUser.nome.split(" ")[0]}` : "ENTRAR"}
             </button>
-            <Link 
-              href="/checkout/cigarreira-corta-tapa" 
-              className="cursor-pointer hover:text-[#cc0000] transition-colors flex items-center gap-1.5"
+            <button 
+              type="button"
+              onClick={() => openCartDrawer()}
+              className="cursor-pointer hover:text-[#cc0000] transition-colors flex items-center gap-1.5 focus:outline-none"
+              aria-label="Abrir sacola de compras"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
-              <span>CARRINHO <span className="text-[#cc0000]">(1)</span></span>
-            </Link>
+              <span>SACOLA <span className="text-[#cc0000]">({cartCount})</span></span>
+            </button>
           </div>
         </div>
 
@@ -136,6 +152,22 @@ export default function Header() {
 
               {/* Navigation Links */}
               <nav className="flex flex-col py-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    openCartDrawer();
+                  }}
+                  className="px-6 py-4 font-black uppercase text-base border-b border-gray-100 hover:bg-gray-50 hover:text-[#cc0000] flex justify-between items-center text-left w-full cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>🛍️ Sacola de Compras</span>
+                    <span className="text-xs bg-[#cc0000] text-white px-2 py-0.5 rounded-full font-bold">
+                      {cartCount}
+                    </span>
+                  </div>
+                  <span className="text-gray-400">›</span>
+                </button>
                 <Link 
                   href="/categoria/luminaria" 
                   onClick={() => setIsMobileMenuOpen(false)}

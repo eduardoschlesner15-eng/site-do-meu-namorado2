@@ -7,6 +7,7 @@ export const metadata: Metadata = {
 };
 
 import Header from "@/components/Header";
+import CartDrawer from "@/components/CartDrawer";
 
 export default function RootLayout({
   children,
@@ -17,6 +18,7 @@ export default function RootLayout({
     <html lang="pt-br">
       <body className="antialiased min-h-screen flex flex-col bg-white text-black">
         <Header />
+        <CartDrawer />
 
         <main className="flex-1 flex flex-col">
           {children}
