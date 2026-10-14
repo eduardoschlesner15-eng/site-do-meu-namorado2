@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import ModelViewer from "./ModelViewer";
 import { Product } from "@/lib/data";
+import { addToCart, openCartDrawer } from "@/lib/store";
 
 export default function ProductSection({ product, index }: { product: Product; index: number }) {
   const isEven = index % 2 === 0;
@@ -62,12 +63,25 @@ export default function ProductSection({ product, index }: { product: Product; i
             >
               VER DETALHES DO PRODUTO
             </a>
-            <a 
-              href={`/checkout/${product.slug}`}
-              className="text-center border-2 border-neon-green py-4 font-bold text-lg hover:bg-neon-green hover:text-black transition-colors shadow-neon block"
+            <button 
+              type="button"
+              onClick={() => {
+                addToCart({
+                  id: product.slug,
+                  name: product.name,
+                  slug: product.slug,
+                  price: 39.9,
+                  quantity: 1,
+                  fileType: product.fileType,
+                  fileUrl: product.fileUrl,
+                  category: product.category,
+                });
+                openCartDrawer();
+              }}
+              className="text-center border-2 border-neon-green py-4 font-bold text-lg hover:bg-neon-green hover:text-black transition-colors shadow-neon block w-full cursor-pointer"
             >
               COMPRAR AGORA
-            </a>
+            </button>
           </div>
         </motion.div>
       </div>

@@ -284,7 +284,7 @@ export default function CartDrawer() {
                 : "bg-black hover:bg-[#cc0000] text-white active:scale-[0.99]"
             }`}
           >
-            <span>Finalizar compra</span>
+            <span>Finalizar Pedido</span>
             <span>➔</span>
           </Link>
 
