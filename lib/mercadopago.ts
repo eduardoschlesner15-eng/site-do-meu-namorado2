@@ -10,6 +10,7 @@ export type PreferenceData = {
   price: number;
   quantity?: number;
   productSlug?: string;
+  onlyPix?: boolean;
   payer: {
     nome: string;
     email: string;
@@ -70,6 +71,17 @@ export async function createMercadoPagoPreference(data: PreferenceData): Promise
             state_name: data.payer.estado,
           },
         },
+        payment_methods: data.onlyPix
+          ? {
+              excluded_payment_types: [
+                { id: "ticket" },
+                { id: "credit_card" },
+                { id: "debit_card" },
+              ],
+            }
+          : {
+              excluded_payment_types: [{ id: "ticket" }],
+            },
         back_urls: {
           success: `${currentBaseUrl}/checkout/${slug}?status=approved`,
           failure: `${currentBaseUrl}/checkout/${slug}?status=failure`,

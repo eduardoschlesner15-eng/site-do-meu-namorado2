@@ -3,26 +3,42 @@
  * Mantém todos os dados pessoais (telefone, CPF, nome completo) 100% ocultos dos compradores.
  */
 
-// Chave Aleatória (EVP) segura vinculada ao Mercado Pago (sem expor celular, CPF ou dados pessoais)
+export const REAL_PIX_STORAGE_KEY = "n30_custom_evp_pix_key";
+
+export function maskPixKey(key: string): string {
+  if (!key || key.length < 8) return "••••••••••••";
+  const start = key.slice(0, 8);
+  const end = key.slice(-12);
+  return `${start}-••••-••••-••••-${end}`;
+}
+
+export function getStoredPixKey(): string {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem(REAL_PIX_STORAGE_KEY);
+    if (saved && saved.trim()) return saved.trim();
+  }
+  return "";
+}
+
+export function setStoredPixKey(key: string): void {
+  if (typeof window !== "undefined") {
+    if (key && key.trim()) {
+      localStorage.setItem(REAL_PIX_STORAGE_KEY, key.trim());
+    } else {
+      localStorage.removeItem(REAL_PIX_STORAGE_KEY);
+    }
+  }
+}
+
 export const PIX_CONFIG = {
-  chave: "e168ca97-a85b-49a6-bc4b-c1f3273f6edf",
-  chaveMascara: "e168ca97-••••-••••-••••-c1f3273f6edf",
+  // Chave padrão ou configurada
+  chave: "",
+  chaveMascara: "••••••••-••••-••••-••••-••••••••••••",
   tipoChave: "CHAVE ALEATÓRIA MERCADO PAGO (EVP)",
   beneficiario: "MERCADO PAGO / LOJA",
   cidade: "SAO PAULO",
   tempoExpiracaoSegundos: 300, // 5 minutos
 };
-
-/**
- * Gera UUID v4 no padrão oficial de Chave Aleatória (EVP) do Banco Central
- */
-export function generateRandomEVPKey(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 // Algoritmo CRC16-CCITT (Polinômio 0x1021) do Banco Central do Brasil
 function crc16(str: string): string {

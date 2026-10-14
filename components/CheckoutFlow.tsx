@@ -24,7 +24,10 @@ import {
 import { 
   generatePixCopiaECola, 
   getPixQrCodeUrl, 
-  PIX_CONFIG 
+  PIX_CONFIG,
+  getStoredPixKey,
+  setStoredPixKey,
+  maskPixKey
 } from "@/lib/pix";
 
 type Props = {
@@ -77,6 +80,10 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   const [pixTimeLeft, setPixTimeLeft] = useState(300);
   const [pixTxId, setPixTxId] = useState(`ORD${Math.floor(100000 + Math.random() * 900000)}`);
   const [pixPayload, setPixPayload] = useState("");
+  const [customPixKey, setCustomPixKey] = useState("");
+  const [inputPixKey, setInputPixKey] = useState("");
+  const [showPixKeyConfig, setShowPixKeyConfig] = useState(false);
+  const [keySaveFeedback, setKeySaveFeedback] = useState(false);
 
   const numeroInputRef = useRef<HTMLInputElement>(null);
 
@@ -91,6 +98,12 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
         setOrderNumber(paymentId);
         setStep("success");
       }
+    }
+
+    const savedKey = getStoredPixKey();
+    if (savedKey) {
+      setCustomPixKey(savedKey);
+      setInputPixKey(savedKey);
     }
 
     const saved = getSavedUser();
@@ -118,16 +131,22 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
   const pixDiscount = paymentMethod === "pix" ? basePriceNum * 0.05 : 0;
   const finalTotal = Math.max(0, basePriceNum + shippingCost - pixDiscount);
 
-  // Gera o Pix Dinâmico BRCode com o valor exato da compra
+  const activePixKey = customPixKey || PIX_CONFIG.chave;
+  const hasActivePixKey = Boolean(activePixKey && activePixKey.trim());
+
+  // Gera o Pix Dinâmico BRCode com o valor exato da compra se houver chave ativa configurada
   useEffect(() => {
-    if (step === "payment" && paymentMethod === "pix" && finalTotal > 0) {
+    if (step === "payment" && paymentMethod === "pix" && finalTotal > 0 && activePixKey) {
       const code = generatePixCopiaECola({
+        key: activePixKey,
         amount: finalTotal,
         txid: pixTxId,
       });
       setPixPayload(code);
+    } else if (!activePixKey) {
+      setPixPayload("");
     }
-  }, [step, paymentMethod, finalTotal, pixTxId]);
+  }, [step, paymentMethod, finalTotal, pixTxId, activePixKey]);
 
   // Contagem regressiva de 5 minutos (300 segundos)
   useEffect(() => {
@@ -332,16 +351,21 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
     handleCompleteOrder("PAYPAL");
   };
 
-  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real no Cartão)
-  const handlePayWithMercadoPago = async () => {
+  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real no Cartão ou Pix Oficial)
+  const handlePayWithMercadoPago = async (onlyPixMode = false) => {
     setPaymentError("");
     setIsProcessingPayment(true);
-    setProcessingMessage("Gerando cobrança oficial no Mercado Pago com débito bancário real...");
+    setProcessingMessage(
+      onlyPixMode
+        ? "Gerando QR Code Pix Oficial no Mercado Pago (Banco Central)..."
+        : "Gerando cobrança oficial no Mercado Pago com débito bancário real..."
+    );
 
     const pref = await createMercadoPagoPreference({
       title: productName,
       price: finalTotal,
       productSlug: productSlug,
+      onlyPix: onlyPixMode,
       payer: {
         nome: formData.nome,
         email: formData.email,
@@ -865,190 +889,236 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
             </button>
           </div>
 
-          {/* ================= ABA 1: PIX DINÂMICO (EXPIRA EM 5 MIN) ================= */}
+          {/* ================= ABA 1: PIX OFICIAL MERCADO PAGO (BANCO CENTRAL) ================= */}
           {paymentMethod === "pix" && (
             <div className="flex flex-col items-center text-center gap-5 py-2 animate-fadeIn max-w-xl mx-auto w-full">
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-center gap-2">
-                <span>✓</span>
-                <span>Pix Dinâmico Banco Central • 5% de Desconto • Código Único</span>
+              {/* Badge de Destaque Oficial */}
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-2 font-bold uppercase rounded-xs w-full flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-emerald-600">✓</span>
+                  <span>Pix Oficial Banco Central (Mercado Pago)</span>
+                </span>
+                <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-xs font-black text-[10px]">
+                  5% OFF: R$ {finalTotal.toFixed(2).replace(".", ",")}
+                </span>
               </div>
 
-              {/* CARD DO CRONÔMETRO DE 5 MINUTOS */}
-              <div className="w-full bg-white border clean-border p-4 rounded-xs shadow-xs flex flex-col gap-2.5">
-                <div className="flex items-center justify-between">
+              {/* CARD PRINCIPAL: PIX OFICIAL MERCADO PAGO (100% GARANTIDO E ATIVO) */}
+              <div className="w-full bg-gradient-to-br from-[#009ee3]/10 via-white to-emerald-50/30 border-2 border-[#009ee3] p-5 sm:p-6 rounded-xs shadow-xs text-left flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-[#009ee3]/20 pb-3">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${isPixExpired ? "bg-red-500" : "bg-emerald-500 animate-pulse"}`}></span>
-                    <span className="text-xs font-black uppercase text-gray-700 tracking-wider">
-                      {isPixExpired ? "Status do Código" : "Tempo Restante para Pagar"}
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="font-black text-sm uppercase text-gray-900 tracking-wider">
+                      QR Code Pix Oficial • Sem Erros Bancários
                     </span>
                   </div>
-                  <div className={`px-2.5 py-1 rounded-xs font-mono font-black text-xs ${
-                    isPixExpired 
-                      ? "bg-red-100 text-red-700 border border-red-200" 
-                      : pixTimeLeft < 60 
-                        ? "bg-amber-100 text-amber-900 border border-amber-300 animate-pulse" 
-                        : "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                  }`}>
-                    ⏱️ {isPixExpired ? "EXPIRADO" : formattedTimer}
-                  </div>
-                </div>
-
-                {/* Barra de Progresso visual */}
-                <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all duration-1000 ${
-                      isPixExpired 
-                        ? "bg-red-500 w-0" 
-                        : pixTimeLeft < 60 
-                          ? "bg-amber-500" 
-                          : "bg-emerald-500"
-                    }`}
-                    style={{ width: `${timerPercent}%` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase">
-                  <span>Início: 05:00 min</span>
-                  <span>{isPixExpired ? "Expirou após 5 min" : "Expira em 5 minutos"}</span>
-                </div>
-              </div>
-
-              {/* QR CODE DINÂMICO OU AVISO DE EXPIRADO */}
-              {isPixExpired ? (
-                <div className="w-full p-8 bg-red-50/50 border-2 border-dashed border-red-300 rounded-xs flex flex-col items-center gap-3">
-                  <span className="text-4xl">⚠️</span>
-                  <h4 className="font-black text-sm uppercase text-red-700 tracking-wider">
-                    Código Pix Expirado (5 Minutos)
-                  </h4>
-                  <p className="text-xs text-gray-600 max-w-sm">
-                    Por motivos de segurança bancária, este código expirou. Clique no botão abaixo para gerar um novo código Pix atualizado com mais 5 minutos de validade.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleGenerateNewPix}
-                    className="mt-2 bg-black hover:bg-[#cc0000] text-white px-6 py-3 font-black text-xs uppercase tracking-wider transition-colors rounded-xs shadow-md cursor-pointer flex items-center gap-2"
-                  >
-                    <span>🔄</span>
-                    <span>Gerar Novo Código Pix (5 min)</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-sm shadow-xs flex flex-col items-center relative">
-                  {/* QR Code Dinâmico Real */}
-                  {pixPayload ? (
-                    <img 
-                      src={getPixQrCodeUrl(pixPayload)}
-                      alt="QR Code Pix Dinâmico Banco Central"
-                      className="w-48 h-48 rounded-xs"
-                      width={192}
-                      height={192}
-                    />
-                  ) : (
-                    <div className="w-48 h-48 bg-gray-100 flex items-center justify-center text-xs text-gray-400">
-                      Gerando QR Code Pix...
-                    </div>
-                  )}
-                  <span className="text-[11px] font-bold text-gray-500 uppercase mt-2">
-                    Aponte a câmera do aplicativo do seu banco
+                  <span className="bg-[#009ee3] text-white text-[10px] font-black px-2 py-0.5 rounded-xs uppercase">
+                    Banco Central (DICT)
                   </span>
                 </div>
-              )}
 
-              {/* Chave Pix Cadastrada (Aleatória / EVP Mercado Pago - Dados Pessoais 100% Ocultos) */}
-              <div className="w-full bg-gray-50 border border-gray-200 p-3.5 rounded-xs text-left flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                <div>
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  Gere o código Pix oficial autenticado em tempo real pelos servidores do <strong>Mercado Pago</strong>. Funciona em <strong>100% dos aplicativos bancários</strong> (Nubank, Inter, Itaú, Bradesco, BB, Caixa, etc.) com compensação em menos de 10 segundos.
+                </p>
+
+                {/* Benefícios de Segurança e Privacidade Solicitados pelo Usuário */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 py-1 text-[11px] text-gray-600 font-medium">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase">
-                      Chave Aleatória Mercado Pago (EVP):
-                    </span>
-                    <span className="text-[10px] bg-blue-100 text-[#009ee3] font-black px-1.5 py-0.5 rounded-xs">
-                      Protegida
-                    </span>
+                    <span className="text-emerald-600 font-bold">✓</span>
+                    <span>Dados pessoais (telefone e CPF) 100% ocultos</span>
                   </div>
-                  <span className="font-mono font-bold text-sm text-black">{PIX_CONFIG.chaveMascara}</span>
-                  <span className="text-[10px] text-gray-500 block">
-                    Beneficiário: {PIX_CONFIG.beneficiario} • Celular e CPF 100% ocultos
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(PIX_CONFIG.chave);
-                    setCopiedPix(true);
-                    setTimeout(() => setCopiedPix(false), 2500);
-                  }}
-                  className="bg-black text-white px-3 py-1.5 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors rounded-xs cursor-pointer self-stretch sm:self-auto text-center"
-                >
-                  {copiedPix ? "Chave Copiada! ✓" : "Copiar Chave"}
-                </button>
-              </div>
-
-              {/* Pix Copia e Cola Completo Dinâmico */}
-              {!isPixExpired && pixPayload && (
-                <div className="w-full flex flex-col gap-1.5 text-left">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-700 uppercase">
-                      Código Pix Copia e Cola (Valor R$ {finalTotal.toFixed(2).replace(".", ",")}):
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-bold uppercase font-mono">
-                      TxID: {pixTxId}
-                    </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-600 font-bold">✓</span>
+                    <span>QR Code registrado e reconhecido por todos os bancos</span>
                   </div>
-                  <div className="flex border border-gray-300 rounded-xs overflow-hidden">
-                    <input 
-                      type="text" 
-                      readOnly 
-                      value={pixPayload} 
-                      className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate font-mono"
-                    />
-                    <button 
-                      type="button"
-                      onClick={handleCopyPix}
-                      className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] transition-colors shrink-0 cursor-pointer"
-                    >
-                      {copiedPix ? "Copiado! ✓" : "Copiar Código"}
-                    </button>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-600 font-bold">✓</span>
+                    <span>Expiração segura de 5 minutos com código único</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-600 font-bold">✓</span>
+                    <span>Retorno e confirmação automática do pedido</span>
                   </div>
                 </div>
-              )}
 
-              {/* Passo a Passo */}
-              <div className="w-full bg-gray-50 border border-gray-200 p-4 text-xs text-left flex flex-col gap-2 rounded-xs">
-                <span className="font-bold text-black uppercase text-[11px]">Como pagar via Pix:</span>
-                <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                  <li>Abra o aplicativo de qualquer banco (Nubank, Inter, Itaú, BB, etc.).</li>
-                  <li>Escolha <strong>Pix &gt; Ler QR Code</strong> ou <strong>Pix Copia e Cola</strong>.</li>
-                  <li>O valor exato de <strong className="text-black">R$ {finalTotal.toFixed(2).replace(".", ",")}</strong> (com 5% de desconto) já virá preenchido.</li>
-                  <li>Realize o pagamento antes do cronômetro de 5 minutos expirar e confirme abaixo!</li>
-                </ol>
-              </div>
+                {paymentError && (
+                  <div className="p-3 bg-red-50 border border-red-300 text-red-700 text-xs font-bold rounded-xs">
+                    {paymentError}
+                  </div>
+                )}
 
-              <div className="w-full flex flex-col gap-2">
-                <button 
-                  type="button"
-                  onClick={handlePayWithPix}
-                  disabled={isProcessingPayment || isPixExpired}
-                  className={`w-full py-4 font-black text-sm uppercase tracking-wider transition-colors shadow-lg cursor-pointer ${
-                    isPixExpired 
-                      ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  }`}
-                >
-                  {isProcessingPayment 
-                    ? "Confirmando recebimento..." 
-                    : isPixExpired 
-                      ? "Código Expirado - Gere um Novo Código" 
-                      : "Confirmar Pagamento Realizado ✓"}
-                </button>
-
+                {/* BOTÃO PRINCIPAL DE GERAÇÃO OFICIAL MERCADO PAGO */}
                 <button
                   type="button"
-                  onClick={handlePayWithMercadoPago}
+                  onClick={() => handlePayWithMercadoPago(true)}
                   disabled={isProcessingPayment}
-                  className="w-full bg-[#009ee3]/10 hover:bg-[#009ee3]/20 border border-[#009ee3] text-[#009ee3] py-3 px-4 font-bold text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full bg-[#009ee3] hover:bg-[#0086c2] text-white py-4 px-6 font-black text-sm uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer rounded-xs mt-1"
                 >
-                  <span>⚡</span>
-                  <span>Ou Pagar Pix pelo Checkout Oficial do Mercado Pago ➔</span>
+                  {isProcessingPayment ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Gerando QR Code Oficial no Mercado Pago...
+                    </span>
+                  ) : (
+                    <>
+                      <span>⚡</span>
+                      <span>Gerar QR Code Pix Oficial no Mercado Pago (R$ {finalTotal.toFixed(2).replace(".", ",")}) ➔</span>
+                    </>
+                  )}
                 </button>
+              </div>
+
+              {/* SEÇÃO OPCIONAL: QR CODE DIRETO NA TELA (SE TIVER CHAVE ALEATÓRIA CADASTRADA) */}
+              {hasActivePixKey ? (
+                <div className="w-full flex flex-col items-center gap-4 bg-white border clean-border p-4 rounded-xs">
+                  {/* Cronômetro */}
+                  <div className="w-full flex items-center justify-between border-b clean-border pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${isPixExpired ? "bg-red-500" : "bg-emerald-500 animate-pulse"}`}></span>
+                      <span className="text-xs font-black uppercase text-gray-700 tracking-wider">
+                        {isPixExpired ? "Código Expirado" : "Validade do Código"}
+                      </span>
+                    </div>
+                    <div className="px-2 py-0.5 rounded-xs font-mono font-black text-xs bg-emerald-100 text-emerald-800">
+                      ⏱️ {isPixExpired ? "EXPIRADO" : formattedTimer}
+                    </div>
+                  </div>
+
+                  {isPixExpired ? (
+                    <div className="w-full p-4 bg-red-50 text-red-700 text-xs text-center flex flex-col gap-2">
+                      <span>Este código expirou após 5 minutos.</span>
+                      <button 
+                        type="button" 
+                        onClick={handleGenerateNewPix} 
+                        className="bg-black text-white px-4 py-2 font-bold uppercase text-xs rounded-xs"
+                      >
+                        Gerar Novo Código
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {pixPayload && (
+                        <div className="p-3 bg-white border border-gray-200 rounded-xs flex flex-col items-center">
+                          <img 
+                            src={getPixQrCodeUrl(pixPayload)} 
+                            alt="QR Code Pix" 
+                            className="w-44 h-44" 
+                            width={176} 
+                            height={176} 
+                          />
+                          <span className="text-[10px] font-bold text-gray-500 uppercase mt-1">
+                            Aponte a câmera do seu banco
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Chave Protegida */}
+                      <div className="w-full bg-gray-50 border border-gray-200 p-2.5 text-xs text-left flex justify-between items-center rounded-xs">
+                        <div>
+                          <span className="text-[10px] font-bold text-gray-500 uppercase block">Chave Aleatória (EVP):</span>
+                          <span className="font-mono font-bold text-black">{maskPixKey(activePixKey)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(activePixKey);
+                            setCopiedPix(true);
+                            setTimeout(() => setCopiedPix(false), 2000);
+                          }}
+                          className="bg-black text-white px-3 py-1 text-xs font-bold uppercase rounded-xs"
+                        >
+                          {copiedPix ? "Copiado!" : "Copiar"}
+                        </button>
+                      </div>
+
+                      {/* Pix Copia e Cola */}
+                      {pixPayload && (
+                        <div className="w-full flex border border-gray-300 rounded-xs overflow-hidden">
+                          <input 
+                            type="text" 
+                            readOnly 
+                            value={pixPayload} 
+                            className="w-full px-3 py-2 text-xs text-gray-500 bg-gray-50 outline-none truncate font-mono"
+                          />
+                          <button 
+                            type="button"
+                            onClick={handleCopyPix}
+                            className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] shrink-0"
+                          >
+                            {copiedPix ? "Copiado! ✓" : "Copiar Código"}
+                          </button>
+                        </div>
+                      )}
+
+                      <button 
+                        type="button"
+                        onClick={handlePayWithPix}
+                        disabled={isProcessingPayment || isPixExpired}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 font-black text-xs uppercase tracking-wider rounded-xs"
+                      >
+                        Confirmar Pagamento Realizado ✓
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {/* CARD DE CONFIGURAÇÃO DE CHAVE ALEATÓRIA (EVP) */}
+              <div className="w-full bg-gray-50 border border-gray-200 p-3.5 text-xs text-left rounded-xs flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPixKeyConfig(!showPixKeyConfig)}
+                  className="w-full flex items-center justify-between text-left font-bold text-gray-700 hover:text-black cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>⚙️</span>
+                    <span>Deseja ativar o QR Code fixo direto nesta tela?</span>
+                  </span>
+                  <span className="text-[11px] text-[#009ee3] font-bold">
+                    {showPixKeyConfig ? "Fechar ▲" : "Configurar Chave EVP ▼"}
+                  </span>
+                </button>
+
+                {showPixKeyConfig && (
+                  <div className="pt-2 border-t border-gray-200 flex flex-col gap-2 text-gray-600 animate-fadeIn">
+                    <p className="text-[11px]">
+                      Para que o QR Code fixo nesta tela funcione no aplicativo de qualquer banco sem o erro <em>"o qr code não existe"</em>, é necessário cadastrar uma <strong>Chave Aleatória (EVP)</strong> no seu app Mercado Pago (ela é 100% anônima e não mostra seu celular nem CPF):
+                    </p>
+                    <ol className="list-decimal list-inside text-[11px] space-y-0.5 text-gray-700 font-medium">
+                      <li>Abra o app do <strong>Mercado Pago</strong> no celular.</li>
+                      <li>Vá em <strong>Área Pix &gt; Minhas chaves &gt; Cadastrar chave &gt; Chave aleatória</strong>.</li>
+                      <li>Copie a chave de 32 caracteres gerada e cole no campo abaixo:</li>
+                    </ol>
+
+                    <div className="flex gap-2 mt-1">
+                      <input 
+                        type="text"
+                        placeholder="Ex: 8f3d1b82-4c21-4f89-b1d5-9a8421c97a10"
+                        value={inputPixKey}
+                        onChange={(e) => setInputPixKey(e.target.value)}
+                        className="w-full border border-gray-300 px-3 py-2 text-xs font-mono outline-none focus:border-black rounded-xs bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoredPixKey(inputPixKey);
+                          setCustomPixKey(inputPixKey.trim());
+                          setKeySaveFeedback(true);
+                          setTimeout(() => setKeySaveFeedback(false), 3000);
+                        }}
+                        className="bg-black hover:bg-gray-800 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xs shrink-0 cursor-pointer"
+                      >
+                        Salvar Chave
+                      </button>
+                    </div>
+
+                    {keySaveFeedback && (
+                      <span className="text-[11px] text-emerald-600 font-bold">
+                        ✓ Chave Aleatória salva com sucesso! O QR Code na tela está ativado.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1131,7 +1201,7 @@ export default function CheckoutFlow({ productName, price, productSlug = "produt
                 {/* Botão de Cobrança Oficial */}
                 <button
                   type="button"
-                  onClick={handlePayWithMercadoPago}
+                  onClick={() => handlePayWithMercadoPago(false)}
                   disabled={isProcessingPayment}
                   className="w-full bg-[#009ee3] hover:bg-[#0086c2] text-white py-4 px-6 font-black text-sm uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer mt-1"
                 >
