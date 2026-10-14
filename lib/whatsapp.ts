@@ -141,8 +141,8 @@ export function getEvolutionConfig(): EvolutionConfig {
   }
 
   return {
-    baseUrl: process.env.NEXT_PUBLIC_EVOLUTION_API_URL || "",
-    apiKey: process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || "",
+    baseUrl: process.env.NEXT_PUBLIC_EVOLUTION_API_URL || "https://evolution-api-production-a085.up.railway.app",
+    apiKey: process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || "ef3432a67a333e1151a20e32f438c2328b4eb37560af504dd00a929f02e39312",
     instanceName: process.env.NEXT_PUBLIC_EVOLUTION_INSTANCE || "loja",
   };
 }
