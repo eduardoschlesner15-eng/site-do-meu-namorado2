@@ -20,7 +20,15 @@ import {
   STORE_WHATSAPP_NUMBER, 
   generateCustomerOrderMessage, 
   generateSellerOrderMessage, 
-  getWhatsAppUrl 
+  getWhatsAppUrl,
+  autoDispatchOrderNotifications,
+  isEvolutionConfigured,
+  getEvolutionConfig,
+  saveEvolutionConfig,
+  sendEvolutionMessage,
+  checkEvolutionConnection,
+  EvolutionConfig,
+  OrderNotificationData
 } from "@/lib/whatsapp";
 import { 
   generatePixCopiaECola, 
@@ -31,6 +39,7 @@ import {
   maskPixKey
 } from "@/lib/pix";
 import ModelViewer from "@/components/ModelViewer";
+import EvolutionConfigModal from "@/components/EvolutionConfigModal";
 
 type Props = {
   productName: string;
@@ -80,6 +89,16 @@ export default function CheckoutFlow({
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "paypal">("pix");
   const [copiedPix, setCopiedPix] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
+
+  // Estado da Automação Evolution API (WhatsApp)
+  const [evolutionModalOpen, setEvolutionModalOpen] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState<{
+    attempted: boolean;
+    loading: boolean;
+    customerSuccess?: boolean;
+    sellerSuccess?: boolean;
+    error?: string;
+  }>({ attempted: false, loading: false });
 
   // Processamento e autenticação bancária
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -181,6 +200,25 @@ export default function CheckoutFlow({
   const formattedTimer = `${String(pixMinutes).padStart(2, "0")}:${String(pixSeconds).padStart(2, "0")}`;
   const timerPercent = (pixTimeLeft / 300) * 100;
   const isPixExpired = pixTimeLeft <= 0;
+
+  // Preenche dados para simulação rápida de compra (comprador 55 55 99620-6060)
+  const handleFillTestData = () => {
+    setFormData({
+      nome: "Carlos Eduardo (Simulação)",
+      email: "carlos.teste@gmail.com",
+      cpf: "123.456.789-09",
+      telefone: "(55) 99620-6060",
+      cep: "97010-001",
+      endereco: "Av. Rio Branco",
+      numero: "150",
+      complemento: "Apto 302",
+      bairro: "Centro",
+      cidade: "Santa Maria",
+      estado: "RS",
+      salvarCadastro: true,
+    });
+    setErrors({});
+  };
 
   // Manipulação de inputs com máscaras
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,11 +439,34 @@ export default function CheckoutFlow({
   };
 
   // Concluir pedido
-  const handleCompleteOrder = (methodOverride?: "PIX" | "CARTAO" | "PAYPAL") => {
+  const handleCompleteOrder = async (methodOverride?: "PIX" | "CARTAO" | "PAYPAL") => {
     const generatedOrder = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
     setOrderNumber(generatedOrder);
 
     const chosenPaymentMethod = (methodOverride || paymentMethod.toUpperCase()) as "PIX" | "CARTAO" | "PAYPAL";
+
+    const notificationPayload: OrderNotificationData = {
+      id: generatedOrder,
+      productName,
+      subtotal: basePriceNum,
+      frete: shippingCost,
+      total: finalTotal,
+      shippingMethod: shippingMethod.toUpperCase(),
+      paymentMethod: chosenPaymentMethod,
+      user: {
+        nome: formData.nome,
+        cpf: formData.cpf,
+        email: formData.email,
+        telefone: formData.telefone,
+        cep: formData.cep,
+        endereco: formData.endereco,
+        numero: formData.numero,
+        complemento: formData.complemento,
+        bairro: formData.bairro,
+        cidade: formData.cidade,
+        estado: formData.estado,
+      },
+    };
 
     saveOrder({
       id: generatedOrder,
@@ -443,6 +504,31 @@ export default function CheckoutFlow({
 
     setStep("success");
     window.scrollTo({ top: 0, behavior: "smooth" });
+
+    // Disparo automático em background via Evolution API se configurada
+    if (isEvolutionConfigured()) {
+      setDispatchResult({ attempted: true, loading: true });
+      try {
+        const res = await autoDispatchOrderNotifications(notificationPayload);
+        setDispatchResult({
+          attempted: true,
+          loading: false,
+          customerSuccess: res.customer.success,
+          sellerSuccess: res.seller.success,
+          error: !res.customer.success ? res.customer.error : undefined,
+        });
+      } catch (err: any) {
+        setDispatchResult({
+          attempted: true,
+          loading: false,
+          customerSuccess: false,
+          sellerSuccess: false,
+          error: err?.message || "Falha na conexão com a Evolution API",
+        });
+      }
+    } else {
+      setDispatchResult({ attempted: false, loading: false });
+    }
   };
 
   const handleCopyPix = () => {
@@ -500,18 +586,81 @@ export default function CheckoutFlow({
           </p>
         </div>
 
-        {/* Notificações WhatsApp */}
+        {/* Notificações WhatsApp & Evolution API */}
         <div className="w-full max-w-lg bg-neutral-50 border border-neutral-300 p-6 flex flex-col gap-4 rounded-xs text-left">
           <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
-            <span className="font-black text-xs uppercase tracking-wider text-neutral-900">
-              Notificação Automática via WhatsApp
-            </span>
-            <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-xs uppercase">
-              Ativo
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-black text-xs uppercase tracking-wider text-neutral-900">
+                Notificação WhatsApp
+              </span>
+              <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-xs uppercase">
+                {isEvolutionConfigured() ? "Evolution API Ativa" : "1-Clique"}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEvolutionModalOpen(true)}
+              className="text-[10px] font-bold text-neutral-600 hover:text-black underline uppercase tracking-wider"
+            >
+              Configurar API
+            </button>
           </div>
 
-          <div className="flex flex-col gap-2.5">
+          {/* Status do Disparo Automático */}
+          {dispatchResult.loading && (
+            <div className="bg-sky-50 border border-sky-200 text-sky-900 p-3 rounded-xs flex items-center gap-2.5 text-xs">
+              <div className="w-3.5 h-3.5 border-2 border-sky-600 border-t-transparent rounded-full animate-spin"></div>
+              <span className="font-bold">Disparando mensagem em segundo plano para {formData.telefone}...</span>
+            </div>
+          )}
+
+          {dispatchResult.attempted && dispatchResult.customerSuccess && (
+            <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-3 rounded-xs flex items-start gap-2 text-xs">
+              <span className="text-sm">✅</span>
+              <div>
+                <p className="font-black uppercase text-[10px] text-emerald-800 tracking-wider">Disparo Automático Concluído</p>
+                <p className="font-medium mt-0.5">Comprovante enviado automaticamente para o WhatsApp (+{formData.telefone}) e alerta enviado à loja!</p>
+              </div>
+            </div>
+          )}
+
+          {dispatchResult.attempted && !dispatchResult.customerSuccess && (
+            <div className="bg-amber-50 border border-amber-300 text-amber-900 p-3 rounded-xs flex items-start gap-2 text-xs">
+              <span className="text-sm">⚠️</span>
+              <div>
+                <p className="font-black uppercase text-[10px] text-amber-800 tracking-wider">Evolution API Indisponível</p>
+                <p className="font-medium mt-0.5">{dispatchResult.error || "A API não respondeu"}. Use os botões manuais abaixo:</p>
+              </div>
+            </div>
+          )}
+
+          {!isEvolutionConfigured() && !dispatchResult.attempted && (
+            <div className="bg-neutral-100 border border-neutral-200 text-neutral-700 p-3.5 rounded-xs flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-[11px] text-neutral-900">
+                  🤖 Disparo 100% Automático via Evolution API
+                </span>
+                <span className="text-[9px] bg-neutral-200 text-neutral-700 font-mono px-1.5 py-0.5 rounded-xs uppercase">
+                  Opcional
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-600 leading-relaxed">
+                Para que as mensagens cheguem sem você precisar clicar em botões manuais, conecte sua Evolution API (gratuita e open source).
+              </p>
+              <button
+                type="button"
+                onClick={() => setEvolutionModalOpen(true)}
+                className="mt-1 w-full bg-black hover:bg-neutral-800 text-white py-2 px-3 text-[11px] font-black uppercase tracking-wider rounded-xs transition-colors flex items-center justify-center gap-1.5"
+              >
+                <span>⚙️</span>
+                <span>Configurar / Testar Evolution API</span>
+              </button>
+            </div>
+          )}
+
+          {/* Botões de Ação Direta (Fallback) */}
+          <div className="flex flex-col gap-2.5 pt-1">
             <a
               href={customerWhatsAppUrl}
               target="_blank"
@@ -556,6 +705,13 @@ export default function CheckoutFlow({
         >
           Voltar para a Página Inicial
         </Link>
+
+        {/* Modal de Configuração da Evolution API */}
+        <EvolutionConfigModal
+          isOpen={evolutionModalOpen}
+          onClose={() => setEvolutionModalOpen(false)}
+          testPhoneDefault={formData.telefone || "5555996206060"}
+        />
       </div>
     );
   }
@@ -599,12 +755,24 @@ export default function CheckoutFlow({
           </div>
         </div>
 
-        {/* Selo de Segurança */}
-        <div className="flex items-center gap-1.5 text-neutral-600 text-[11px] font-bold uppercase tracking-wider">
-          <svg className="w-3.5 h-3.5 text-neutral-800" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-          </svg>
-          <span>Compra 100% Segura</span>
+        {/* Selo de Segurança e Botão Evolution API */}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setEvolutionModalOpen(true)}
+            className="flex items-center gap-1.5 text-neutral-600 hover:text-black border border-neutral-300 hover:border-black px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-xs transition-colors"
+            title="Abrir painel de integração da Evolution API"
+          >
+            <span>⚡</span>
+            <span>Evolution API</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 text-neutral-600 text-[11px] font-bold uppercase tracking-wider">
+            <svg className="w-3.5 h-3.5 text-neutral-800" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+            </svg>
+            <span>Compra 100% Segura</span>
+          </div>
         </div>
       </div>
 
@@ -620,10 +788,21 @@ export default function CheckoutFlow({
               
               {/* Seção 1: Dados Pessoais */}
               <div>
-                <div className="flex items-center justify-between border-b border-neutral-200 pb-3 mb-5">
-                  <h3 className="font-black text-sm uppercase tracking-wider text-black">
-                    1. Dados Pessoais
-                  </h3>
+                <div className="flex flex-wrap items-center justify-between border-b border-neutral-200 pb-3 mb-5 gap-2">
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-black text-sm uppercase tracking-wider text-black">
+                      1. Dados Pessoais
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={handleFillTestData}
+                      className="text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold px-2 py-1 rounded-xs border border-neutral-300 transition-colors flex items-center gap-1 shadow-2xs"
+                      title="Preencher automaticamente com o comprador 55 55 99620-6060"
+                    >
+                      <span>⚡</span>
+                      <span>Simular com 55 55 99620-6060</span>
+                    </button>
+                  </div>
                   <span className="text-[10px] text-neutral-400 font-bold uppercase">* Campos Obrigatórios</span>
                 </div>
 
@@ -1469,6 +1648,13 @@ export default function CheckoutFlow({
           </div>
         </div>
       )}
+
+      {/* Modal de Configuração da Evolution API */}
+      <EvolutionConfigModal
+        isOpen={evolutionModalOpen}
+        onClose={() => setEvolutionModalOpen(false)}
+        testPhoneDefault={formData.telefone || "5555996206060"}
+      />
 
     </div>
   );

@@ -116,3 +116,160 @@ export function triggerWhatsAppNotification(phone: string, message: string): voi
   const url = getWhatsAppUrl(phone, message);
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+/* ================= EVOLUTION API (DISPARO 100% AUTOMÁTICO EM SEGUNDO PLANO) ================= */
+
+export type EvolutionConfig = {
+  baseUrl: string;
+  apiKey: string;
+  instanceName: string;
+};
+
+const EVOLUTION_STORAGE_KEY = "n30_evolution_api_config";
+
+export function getEvolutionConfig(): EvolutionConfig {
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(EVOLUTION_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.baseUrl && parsed.apiKey) {
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    baseUrl: process.env.NEXT_PUBLIC_EVOLUTION_API_URL || "",
+    apiKey: process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || "",
+    instanceName: process.env.NEXT_PUBLIC_EVOLUTION_INSTANCE || "loja",
+  };
+}
+
+export function saveEvolutionConfig(config: EvolutionConfig): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(EVOLUTION_STORAGE_KEY, JSON.stringify(config));
+}
+
+export function isEvolutionConfigured(): boolean {
+  const cfg = getEvolutionConfig();
+  return Boolean(cfg.baseUrl && cfg.apiKey && cfg.instanceName);
+}
+
+/**
+ * Verifica o estado de conexão da instância no servidor Evolution API
+ */
+export async function checkEvolutionConnection(configOverride?: EvolutionConfig): Promise<{
+  connected: boolean;
+  state?: string;
+  error?: string;
+}> {
+  try {
+    const config = configOverride || getEvolutionConfig();
+    if (!config.baseUrl || !config.apiKey) {
+      return { connected: false, error: "URL ou Chave de API ausente." };
+    }
+
+    const cleanBaseUrl = config.baseUrl.replace(/\/+$/, "");
+    const instance = encodeURIComponent(config.instanceName || "loja");
+    const endpoint = `${cleanBaseUrl}/instance/connectionState/${instance}`;
+
+    const res = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "apikey": config.apiKey,
+      },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { connected: false, error: `Erro ${res.status}: ${errText}` };
+    }
+
+    const data = await res.json();
+    const state = data?.instance?.state || data?.state || "unknown";
+    return {
+      connected: state === "open",
+      state: state,
+    };
+  } catch (err: any) {
+    return { connected: false, error: err?.message || "Erro de rede ao conectar à Evolution API." };
+  }
+}
+
+/**
+ * Envia mensagem direta pelo servidor da Evolution API
+ */
+export async function sendEvolutionMessage(
+  phone: string, 
+  text: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const cleanPhone = formatWhatsAppNumber(phone);
+    if (!cleanPhone) {
+      return { success: false, error: "Número de telefone inválido." };
+    }
+
+    const config = getEvolutionConfig();
+    if (!config.baseUrl || !config.apiKey) {
+      return { success: false, error: "Evolution API não configurada." };
+    }
+
+    const cleanBaseUrl = config.baseUrl.replace(/\/+$/, "");
+    const instance = encodeURIComponent(config.instanceName || "loja");
+    const endpoint = `${cleanBaseUrl}/message/sendText/${instance}`;
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": config.apiKey,
+      },
+      body: JSON.stringify({
+        number: cleanPhone,
+        text: text,
+        textMessage: {
+          text: text,
+        },
+        delay: 1200,
+        linkPreview: true,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Evolution API Erro:", errText);
+      return { success: false, error: errText };
+    }
+
+    const json = await res.json();
+    return { success: true, data: json };
+  } catch (err: any) {
+    console.error("Evolution API Falha na requisição:", err);
+    return { success: false, error: err?.message || "Erro de conexão com Evolution API." };
+  }
+}
+
+/**
+ * Disparo automático duplo ao finalizar compra:
+ * 1. Manda comprovante para o comprador
+ * 2. Manda alerta com dados de expedição para o lojista
+ */
+export async function autoDispatchOrderNotifications(data: OrderNotificationData): Promise<{
+  customer: { success: boolean; error?: string };
+  seller: { success: boolean; error?: string };
+}> {
+  const customerMsg = generateCustomerOrderMessage(data);
+  const sellerMsg = generateSellerOrderMessage(data);
+
+  const [customerRes, sellerRes] = await Promise.allSettled([
+    sendEvolutionMessage(data.user.telefone, customerMsg),
+    sendEvolutionMessage(STORE_WHATSAPP_NUMBER, sellerMsg),
+  ]);
+
+  return {
+    customer: customerRes.status === "fulfilled" ? customerRes.value : { success: false, error: "Falha" },
+    seller: sellerRes.status === "fulfilled" ? sellerRes.value : { success: false, error: "Falha" },
+  };
+}
