@@ -320,6 +320,15 @@ export async function autoDispatchOrderNotifications(data: OrderNotificationData
   customer: { success: boolean; error?: string };
   seller: { success: boolean; error?: string };
 }> {
+  // Trava de Segurança Bancária: NUNCA envia comprovante ou alerta de expedição sem aprovação real
+  if (data.status !== "APROVADO") {
+    console.warn("Segurança Bancária: Disparo WhatsApp bloqueado porque o pedido NÃO está APROVADO.", data.status);
+    return {
+      customer: { success: false, error: "Pedido não aprovado pela instituição bancária" },
+      seller: { success: false, error: "Pedido não aprovado pela instituição bancária" },
+    };
+  }
+
   const customerMsg = generateCustomerOrderMessage(data);
   const sellerMsg = generateSellerOrderMessage(data);
 

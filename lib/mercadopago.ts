@@ -118,3 +118,56 @@ export async function createMercadoPagoPreference(data: PreferenceData): Promise
     return null;
   }
 }
+
+export type MPPaymentVerification = {
+  verified: boolean;
+  status: string;
+  paymentType?: string;
+  paymentMethodId?: string;
+  transactionAmount?: number;
+  dateApproved?: string;
+  payerEmail?: string;
+  error?: string;
+};
+
+/**
+ * Consulta a API oficial do Mercado Pago para auditar e confirmar se um pagamento foi realmente aprovado.
+ * Impede fraudes por manipulação de parâmetros na URL e confirmação manual indevida.
+ */
+export async function verifyMercadoPagoPayment(paymentId: string): Promise<MPPaymentVerification> {
+  try {
+    const cleanId = String(paymentId || "").trim();
+    if (!cleanId || cleanId === "null" || cleanId === "undefined" || cleanId.length < 3) {
+      return { verified: false, status: "invalid_id", error: "Identificador de pagamento inválido" };
+    }
+
+    const response = await fetch(`https://api.mercadopago.com/v1/payments/${cleanId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Erro ao consultar pagamento Mercado Pago ${cleanId}:`, errText);
+      return { verified: false, status: `http_${response.status}`, error: errText };
+    }
+
+    const data = await response.json();
+    const isApproved = data.status === "approved";
+
+    return {
+      verified: isApproved,
+      status: data.status || "unknown",
+      paymentType: data.payment_type_id,
+      paymentMethodId: data.payment_method_id,
+      transactionAmount: data.transaction_amount,
+      dateApproved: data.date_approved,
+      payerEmail: data.payer?.email,
+    };
+  } catch (err: any) {
+    console.error("Exceção ao auditar pagamento Mercado Pago:", err);
+    return { verified: false, status: "exception", error: err?.message || String(err) };
+  }
+}

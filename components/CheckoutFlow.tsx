@@ -14,7 +14,7 @@ import {
   fetchAddressByCEP,
 } from "@/lib/validation";
 import { getSavedUser, saveUser, saveOrder, getCartItems, clearCart, UserProfile, CartItem } from "@/lib/store";
-import { createMercadoPagoPreference } from "@/lib/mercadopago";
+import { createMercadoPagoPreference, verifyMercadoPagoPayment } from "@/lib/mercadopago";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { 
   STORE_WHATSAPP_NUMBER, 
@@ -30,14 +30,6 @@ import {
   EvolutionConfig,
   OrderNotificationData
 } from "@/lib/whatsapp";
-import { 
-  generatePixCopiaECola, 
-  getPixQrCodeUrl, 
-  PIX_CONFIG,
-  getStoredPixKey,
-  setStoredPixKey,
-  maskPixKey
-} from "@/lib/pix";
 import ModelViewer from "@/components/ModelViewer";
 import EvolutionConfigModal from "@/components/EvolutionConfigModal";
 import PaymentBadgesRow, { 
@@ -97,7 +89,6 @@ export default function CheckoutFlow({
   
   // Método de pagamento (Pix, Cartão Mercado Pago, PayPal)
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "cartao" | "paypal">("pix");
-  const [copiedPix, setCopiedPix] = useState(false);
   const [orderNumber, setOrderNumber] = useState("");
   const [orderStatus, setOrderStatus] = useState<"APROVADO" | "AGUARDANDO_PAGAMENTO">("AGUARDANDO_PAGAMENTO");
 
@@ -115,31 +106,129 @@ export default function CheckoutFlow({
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
   const [paymentError, setPaymentError] = useState("");
+  const [isVerifyingGateway, setIsVerifyingGateway] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
 
-  // Estado do Pix Dinâmico com expiração de 5 minutos (300s)
-  const [pixTimeLeft, setPixTimeLeft] = useState(300);
-  const [pixTxId, setPixTxId] = useState(`ORD${Math.floor(100000 + Math.random() * 900000)}`);
-  const [pixPayload, setPixPayload] = useState("");
-  const [customPixKey, setCustomPixKey] = useState("");
-
-  // Carrega dados salvos e verifica retorno do Mercado Pago
+  // Carrega dados salvos e audita retorno seguro do Mercado Pago
   const mpHandledRef = useRef(false);
   useEffect(() => {
     if (typeof window !== "undefined" && !mpHandledRef.current) {
       const params = new URLSearchParams(window.location.search);
-      const status = params.get("status") || params.get("collection_status");
-      if (status === "approved") {
-        mpHandledRef.current = true;
-        const paymentId = params.get("payment_id") || `MP-${Math.floor(100000 + Math.random() * 900000)}`;
-        setOrderNumber(paymentId);
-        setOrderStatus("APROVADO");
-        setStep("success");
-      }
-    }
+      const paymentId = params.get("payment_id") || params.get("collection_id");
+      const paramStatus = params.get("status") || params.get("collection_status");
 
-    const savedKey = getStoredPixKey();
-    if (savedKey) {
-      setCustomPixKey(savedKey);
+      // Se houver retorno do Mercado Pago, audita com a API bancária oficial
+      if (paymentId && (paramStatus === "approved" || !paramStatus)) {
+        mpHandledRef.current = true;
+        setIsVerifyingGateway(true);
+        setProcessingMessage("Auditando confirmação bancária oficial junto ao Mercado Pago...");
+
+        (async () => {
+          try {
+            const verifyResult = await verifyMercadoPagoPayment(paymentId);
+            if (verifyResult.verified && verifyResult.status === "approved") {
+              // Recupera dados salvos da sessão do checkout
+              let pendingData: any = null;
+              try {
+                const raw = localStorage.getItem("pending_checkout_order");
+                if (raw) pendingData = JSON.parse(raw);
+              } catch (e) {}
+
+              const currentCustomer = pendingData?.formData || getSavedUser() || formData;
+              const currentItems = pendingData?.cartItems || (getCartItems()?.length ? getCartItems() : cartItems);
+              const currentShipping = pendingData?.shippingMethod || shippingMethod;
+              const currentShippingCost = currentShipping === "sedex" ? 24.9 : 14.9;
+              const currentSubtotal = currentItems.reduce((acc: number, item: any) => acc + item.price * item.quantity, 0) || basePriceNum;
+              const currentTotal = verifyResult.transactionAmount || (currentSubtotal + currentShippingCost);
+              const methodType = verifyResult.paymentType === "bank_transfer" || verifyResult.paymentMethodId === "pix" ? "PIX" : "CARTAO";
+
+              const finalOrderNum = `MP-${paymentId}`;
+              setOrderNumber(finalOrderNum);
+              setOrderStatus("APROVADO");
+              if (currentCustomer.nome) setFormData(currentCustomer);
+              if (currentItems.length > 0) setCartItems(currentItems);
+
+              // Salva pedido autenticamente aprovado
+              saveOrder({
+                id: finalOrderNum,
+                createdAt: new Date().toLocaleDateString("pt-BR"),
+                items: currentItems,
+                subtotal: currentSubtotal,
+                frete: currentShippingCost,
+                total: currentTotal,
+                shippingMethod: currentShipping.toUpperCase(),
+                paymentMethod: methodType,
+                user: {
+                  id: "usr-" + Date.now(),
+                  nome: currentCustomer.nome,
+                  email: currentCustomer.email,
+                  cpf: currentCustomer.cpf,
+                  telefone: currentCustomer.telefone,
+                  endereco: currentCustomer.endereco,
+                  numero: currentCustomer.numero,
+                  cidade: currentCustomer.cidade,
+                  estado: currentCustomer.estado,
+                },
+                status: "APROVADO",
+              });
+
+              // Limpa carrinho e pendência temporária
+              clearCart();
+              try {
+                localStorage.removeItem("pending_checkout_order");
+              } catch (e) {}
+
+              // Disparo automático exclusivo para pagamentos autenticados
+              if (isEvolutionConfigured()) {
+                setDispatchResult({ attempted: true, loading: true });
+                try {
+                  const res = await autoDispatchOrderNotifications({
+                    id: finalOrderNum,
+                    productName: currentItems.length === 1 ? currentItems[0].name : `${currentItems.length} itens do pedido`,
+                    items: currentItems.map((i: any) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+                    quantity: currentItems.reduce((acc: number, i: any) => acc + i.quantity, 0),
+                    subtotal: currentSubtotal,
+                    frete: currentShippingCost,
+                    total: currentTotal,
+                    shippingMethod: currentShipping.toUpperCase(),
+                    paymentMethod: methodType,
+                    status: "APROVADO",
+                    user: currentCustomer,
+                  });
+                  setDispatchResult({
+                    attempted: true,
+                    loading: false,
+                    customerSuccess: res.customer.success,
+                    sellerSuccess: res.seller.success,
+                    error: !res.customer.success ? res.customer.error : undefined,
+                  });
+                } catch (err: any) {
+                  setDispatchResult({
+                    attempted: true,
+                    loading: false,
+                    customerSuccess: false,
+                    sellerSuccess: false,
+                    error: err?.message || "Falha na conexão com a Evolution API",
+                  });
+                }
+              }
+
+              setStep("success");
+              setIsVerifyingGateway(false);
+              // Limpa URL para prevenir reenvios ao atualizar
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else {
+              setIsVerifyingGateway(false);
+              setVerificationError(
+                `Atenção: O pagamento #${paymentId} não foi aprovado pelo Mercado Pago (Status retornado: ${verifyResult.status || "Recusado"}). Nenhum comprovante foi gerado.`
+              );
+            }
+          } catch (err: any) {
+            setIsVerifyingGateway(false);
+            setVerificationError("Falha de conexão ao auditar o pagamento junto ao Mercado Pago.");
+          }
+        })();
+      }
     }
 
     const saved = getSavedUser();
@@ -191,54 +280,6 @@ export default function CheckoutFlow({
   const shippingCost = shippingMethod === "sedex" ? 24.9 : 14.9;
   const pixDiscount = paymentMethod === "pix" ? basePriceNum * 0.05 : 0;
   const finalTotal = Math.max(0, basePriceNum + shippingCost - pixDiscount);
-
-  const activePixKey = customPixKey || PIX_CONFIG.chave;
-
-  // Gera o Pix Dinâmico BRCode com o valor exato da compra se houver chave ativa configurada
-  useEffect(() => {
-    if (step === "payment" && paymentMethod === "pix" && finalTotal > 0 && activePixKey) {
-      const code = generatePixCopiaECola({
-        key: activePixKey,
-        amount: finalTotal,
-        txid: pixTxId,
-      });
-      setPixPayload(code);
-    } else if (!activePixKey) {
-      setPixPayload("");
-    }
-  }, [step, paymentMethod, finalTotal, pixTxId, activePixKey]);
-
-  // Contagem regressiva de 5 minutos (300 segundos)
-  useEffect(() => {
-    if (step !== "payment" || paymentMethod !== "pix") return;
-    if (pixTimeLeft <= 0) return;
-
-    const interval = setInterval(() => {
-      setPixTimeLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [step, paymentMethod, pixTimeLeft]);
-
-  const handleGenerateNewPix = () => {
-    const newTxId = `ORD${Math.floor(100000 + Math.random() * 900000)}`;
-    setPixTxId(newTxId);
-    setPixTimeLeft(300);
-    if (activePixKey && finalTotal > 0) {
-      const code = generatePixCopiaECola({
-        key: activePixKey,
-        amount: finalTotal,
-        txid: newTxId,
-      });
-      setPixPayload(code);
-    }
-  };
-
-  const pixMinutes = Math.floor(pixTimeLeft / 60);
-  const pixSeconds = pixTimeLeft % 60;
-  const formattedTimer = `${String(pixMinutes).padStart(2, "0")}:${String(pixSeconds).padStart(2, "0")}`;
-  const timerPercent = (pixTimeLeft / 300) * 100;
-  const isPixExpired = pixTimeLeft <= 0;
 
   // Preenche dados para simulação rápida de compra (comprador 55 55 99620-6060)
   const handleFillTestData = () => {
@@ -458,33 +499,47 @@ export default function CheckoutFlow({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Processamento com PIX Manual (Chave Pix da Loja)
-  const handlePayWithPix = async () => {
-    setIsProcessingPayment(true);
-    setProcessingMessage("Registrando pedido Pix e preparando comprovante...");
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsProcessingPayment(false);
-    handleCompleteOrder("PIX", "AGUARDANDO_PAGAMENTO");
-  };
-
-  // Processamento com PayPal
-  const handlePayWithPayPal = async () => {
-    setIsProcessingPayment(true);
-    setProcessingMessage("Conectando de forma segura ao PayPal...");
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsProcessingPayment(false);
-    handleCompleteOrder("PAYPAL", "AGUARDANDO_PAGAMENTO");
-  };
-
-  // Pagamento Real via Mercado Pago (Checkout Oficial com Débito Bancário Real no Cartão ou Pix Oficial)
+  // Pagamento Seguro via Mercado Pago (Checkout Oficial com Auditoria Bancária Instantânea)
   const handlePayWithMercadoPago = async (onlyPixMode = false) => {
     setPaymentError("");
+    setVerificationError("");
     setIsProcessingPayment(true);
     setProcessingMessage(
       onlyPixMode
         ? "Gerando QR Code Pix Oficial no Mercado Pago (Banco Central)..."
         : "Conectando ao gateway seguro do Mercado Pago..."
     );
+
+    const finalItems: CartItem[] = cartItems.length > 0 ? cartItems : [
+      {
+        id: productSlug,
+        name: productName,
+        slug: productSlug,
+        price: basePriceNum,
+        quantity: 1,
+        fileType,
+        fileUrl: fileUrl || "/model.stl",
+        category,
+      },
+    ];
+
+    // Preserva estado do pedido para conferência rigorosa no retorno do gateway
+    try {
+      localStorage.setItem(
+        "pending_checkout_order",
+        JSON.stringify({
+          formData,
+          cartItems: finalItems,
+          shippingMethod,
+          shippingCost,
+          basePriceNum,
+          finalTotal,
+          onlyPixMode,
+        })
+      );
+    } catch (e) {
+      console.warn("Não foi possível salvar pending_checkout_order no localStorage", e);
+    }
 
     const pref = await createMercadoPagoPreference({
       title: productName,
@@ -621,13 +676,6 @@ export default function CheckoutFlow({
     } else {
       setDispatchResult({ attempted: false, loading: false });
     }
-  };
-
-  const handleCopyPix = () => {
-    if (!pixPayload) return;
-    navigator.clipboard.writeText(pixPayload);
-    setCopiedPix(true);
-    setTimeout(() => setCopiedPix(false), 2500);
   };
 
   // ==================== TELA 3: SUCESSO ====================
@@ -894,9 +942,48 @@ export default function CheckoutFlow({
     );
   }
 
+  // ==================== TELA DE AUDITORIA BANCÁRIA DO GATEWAY ====================
+  if (isVerifyingGateway) {
+    return (
+      <div className="w-full bg-white border border-neutral-200 p-10 md:p-14 flex flex-col items-center text-center gap-6 shadow-xs max-w-xl mx-auto my-8 animate-fadeIn">
+        <div className="w-16 h-16 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin flex items-center justify-center">
+        </div>
+        <div>
+          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-800 bg-emerald-50 px-3 py-1 rounded-xs border border-emerald-200 inline-block">
+            Auditoria Bancária em Andamento
+          </span>
+          <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-neutral-900 mt-3 font-sans">
+            Validando Pagamento com o Mercado Pago...
+          </h2>
+          <p className="text-xs text-neutral-600 mt-2 max-w-md mx-auto leading-relaxed">
+            Estamos consultando diretamente o gateway oficial e o Banco Central para auditar a liquidação do seu Pix ou Cartão. Os comprovantes oficiais serão liberados assim que a confirmação for autenticada.
+          </p>
+        </div>
+        <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-widest">
+          Aguarde alguns segundos • Não feche esta página
+        </div>
+      </div>
+    );
+  }
+
   // ==================== CHECKOUT PRINCIPAL (LAYOUT 2 COLUNAS VANS STYLE) ====================
   return (
     <div className="w-full flex flex-col gap-6">
+
+      {/* Alerta de Erro de Auditoria Bancária */}
+      {verificationError && (
+        <div className="w-full bg-red-50 border-2 border-red-500 p-4 rounded-xs text-left flex flex-col gap-1.5 shadow-xs">
+          <div className="flex items-center gap-2 text-red-900 font-black text-xs uppercase tracking-wide">
+            <span>🛑</span> Confirmação Bancária Recusada / Pagamento Não Concluído
+          </div>
+          <p className="text-xs text-red-700 leading-relaxed font-medium">
+            {verificationError}
+          </p>
+          <div className="text-[11px] text-red-600 font-bold mt-1">
+            Nenhum comprovante foi gerado e nenhuma liberação de pedido foi realizada. Você pode tentar pagar novamente escolhendo um dos métodos abaixo.
+          </div>
+        </div>
+      )}
       
       {/* BARRA SUPERIOR: STEPPER MINIMALISTA & GARANTIA DE SEGURANÇA (ESTILO VANS) */}
       <div className="w-full flex flex-col sm:flex-row items-center justify-between border-b border-neutral-200 pb-5 gap-4">
@@ -1426,173 +1513,84 @@ export default function CheckoutFlow({
                 </button>
               </div>
 
-              {/* ================= ABA 1: CONTEÚDO PIX OFICIAL ================= */}
+              {/* ================= ABA 1: CONTEÚDO PIX OFICIAL (100% AUTOMATIZADO) ================= */}
               {paymentMethod === "pix" && (
-                <div className="flex flex-col items-center text-center gap-5 pt-2 animate-fadeIn">
+                <div className="flex flex-col gap-4 pt-2 animate-fadeIn text-left">
                   
-                  {/* Cronômetro de 5 minutos */}
-                  <div className="w-full bg-neutral-50 border border-neutral-200 p-3.5 rounded-xs flex flex-col gap-2">
-                    <div className="flex items-center justify-between text-xs">
+                  {/* Card Principal: Pix Oficial com Auditoria Bancária Instantânea */}
+                  <div className="p-5 bg-gradient-to-br from-emerald-50/90 to-emerald-100/40 border-2 border-emerald-400 rounded-xs flex flex-col gap-4 shadow-xs">
+                    <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
                       <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full ${isPixExpired ? "bg-red-500" : "bg-emerald-500 animate-pulse"}`}></span>
-                        <span className="font-bold uppercase text-neutral-700 tracking-wider text-[11px]">
-                          {isPixExpired ? "Código Expirado" : "Tempo Restante para Pagamento:"}
-                        </span>
-                      </div>
-                      <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded-xs ${
-                        isPixExpired ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-800"
-                      }`}>
-                        ⏱️ {isPixExpired ? "EXPIRADO" : formattedTimer}
-                      </span>
-                    </div>
-
-                    <div className="w-full bg-neutral-200 h-1.5 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-1000 ${
-                          isPixExpired ? "bg-red-500 w-0" : pixTimeLeft < 60 ? "bg-amber-500" : "bg-emerald-500"
-                        }`}
-                        style={{ width: `${timerPercent}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* QR Code Real Banco Central */}
-                  {isPixExpired ? (
-                    <div className="w-full p-8 bg-red-50/50 border border-red-200 rounded-xs flex flex-col items-center gap-3">
-                      <span className="text-3xl">⚠️</span>
-                      <h4 className="font-black text-xs uppercase text-red-700 tracking-wider">
-                        Código Pix Expirado (5 Minutos)
-                      </h4>
-                      <p className="text-xs text-neutral-600 max-w-sm">
-                        Por motivos de segurança bancária, este código expirou. Clique no botão abaixo para gerar um novo código atualizado.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleGenerateNewPix}
-                        className="bg-black hover:bg-neutral-800 text-white px-6 py-2.5 font-black text-xs uppercase tracking-wider rounded-xs cursor-pointer"
-                      >
-                        Gerar Novo Código Pix
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-white border border-neutral-200 rounded-xs flex flex-col items-center shadow-xs">
-                      {pixPayload ? (
-                        <img 
-                          src={getPixQrCodeUrl(pixPayload)} 
-                          alt="QR Code Pix Oficial" 
-                          className="w-48 h-48 rounded-xs" 
-                          width={192} 
-                          height={192} 
-                        />
-                      ) : (
-                        <div className="w-48 h-48 bg-neutral-100 flex items-center justify-center text-xs text-neutral-400">
-                          Gerando QR Code...
+                        <PixBadge />
+                        <div>
+                          <span className="font-black text-xs uppercase tracking-wider text-emerald-950 block">
+                            Pix Oficial Banco Central
+                          </span>
+                          <span className="text-[11px] text-emerald-700 font-medium">Liquidação imediata via Mercado Pago</span>
                         </div>
-                      )}
-                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mt-2">
-                        Aponte a câmera do aplicativo do seu banco
+                      </div>
+                      <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-xs uppercase tracking-wider">
+                        ⚡ 3 Segundos
                       </span>
                     </div>
-                  )}
 
-                  {/* Chave Protegida (EVP Mercado Pago) */}
-                  <div className="w-full bg-neutral-50 border border-neutral-200 p-3 text-xs text-left flex justify-between items-center rounded-xs">
-                    <div>
-                      <span className="text-[10px] font-bold text-neutral-500 uppercase block">
-                        Chave Aleatória Mercado Pago (EVP):
-                      </span>
-                      <span className="font-mono font-bold text-black">{maskPixKey(activePixKey)}</span>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-900">
+                        <span>🛡️</span>
+                        <span>Confirmação 100% Automática pelo Banco Central</span>
+                      </div>
+                      <p className="text-xs text-emerald-800 leading-relaxed">
+                        Ao clicar no botão abaixo, você gera o <strong>QR Code oficial e o código Copia e Cola</strong> com auditoria bancária direta. Assim que você pagar no app do seu banco, nosso sistema identifica o recebimento em <strong>segundos</strong> e aprova seu pedido automaticamente.
+                      </p>
                     </div>
+
+                    {/* Vantagens do Pix Automático */}
+                    <div className="bg-white/80 border border-emerald-200 p-3.5 rounded-xs flex flex-col gap-1.5 text-[11px] text-emerald-950">
+                      <div className="flex items-center gap-2 font-bold text-emerald-900">
+                        <span>✓</span>
+                        <span>Zero burocracia: não precisa nos enviar foto de comprovante</span>
+                      </div>
+                      <div className="flex items-center gap-2 font-bold text-emerald-900">
+                        <span>✓</span>
+                        <span>Comprovante oficial autenticado enviado no seu WhatsApp</span>
+                      </div>
+                      <div className="flex items-center gap-2 font-bold text-emerald-900">
+                        <span>✓</span>
+                        <span>Liberado na hora para fabricação 3D e postagem nos Correios</span>
+                      </div>
+                    </div>
+
+                    {paymentError && (
+                      <div className="p-3 bg-red-50 border border-red-300 text-red-700 text-xs font-bold rounded-xs">
+                        {paymentError}
+                      </div>
+                    )}
+
+                    {/* Botão de Ação Único e Seguro */}
                     <button
                       type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(activePixKey);
-                        setCopiedPix(true);
-                        setTimeout(() => setCopiedPix(false), 2000);
-                      }}
-                      className="bg-black hover:bg-neutral-800 text-white px-3 py-1.5 text-xs font-bold uppercase rounded-xs transition-colors cursor-pointer"
+                      onClick={() => handlePayWithMercadoPago(true)}
+                      disabled={isProcessingPayment}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 px-6 font-black text-xs uppercase tracking-widest transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer rounded-xs mt-1"
                     >
-                      {copiedPix ? "Copiada! ✓" : "Copiar Chave"}
+                      <span>⚡</span>
+                      <span>{isProcessingPayment ? "Conectando ao Mercado Pago..." : `Gerar Pix Oficial de R$ ${finalTotal.toFixed(2).replace(".", ",")} ➔`}</span>
                     </button>
+
+                    <div className="text-center text-[10.5px] text-emerald-700 font-bold uppercase tracking-wider">
+                      🔒 Transação Criptografada • Proteção ao Consumidor
+                    </div>
                   </div>
 
-                  {/* Pix Copia e Cola */}
-                  {!isPixExpired && pixPayload && (
-                    <div className="w-full flex flex-col gap-1.5 text-left">
-                      <span className="text-[11px] font-bold text-neutral-700 uppercase tracking-wide">
-                        Código Pix Copia e Cola (R$ {finalTotal.toFixed(2).replace(".", ",")}):
-                      </span>
-                      <div className="flex border border-neutral-300 rounded-xs overflow-hidden">
-                        <input 
-                          type="text" 
-                          readOnly 
-                          value={pixPayload} 
-                          className="w-full px-3 py-2 text-xs text-neutral-600 bg-neutral-50 outline-none truncate font-mono"
-                        />
-                        <button 
-                          type="button"
-                          onClick={handleCopyPix}
-                          className="bg-black text-white px-4 py-2 font-bold text-xs uppercase hover:bg-[#cc0000] shrink-0 transition-colors cursor-pointer"
-                        >
-                          {copiedPix ? "Copiado! ✓" : "Copiar Código"}
-                        </button>
-                      </div>
+                  {/* Informações da Conta Registrada */}
+                  <div className="p-3.5 bg-neutral-50 border border-neutral-200 rounded-xs flex items-center justify-between text-xs">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-neutral-500 uppercase">Recebedor Credenciado:</span>
+                      <span className="font-bold text-neutral-900">Mercado Pago / Loja Oficial N30 Print Arcade</span>
                     </div>
-                  )}
-
-                  {/* Botões de Ação Pix */}
-                  <div className="w-full flex flex-col gap-3 pt-2">
-                    {/* Opção 1: Pix Oficial Mercado Pago (Aprovação Automática Instantânea) */}
-                    <div className="p-4 bg-emerald-50/70 border border-emerald-300 rounded-xs flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-black uppercase text-emerald-900 tracking-wider flex items-center gap-1.5">
-                          <span>⚡</span> Aprovação Instantânea
-                        </span>
-                        <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-xs uppercase">
-                          Recomendado
-                        </span>
-                      </div>
-                      <p className="text-xs text-emerald-800 leading-relaxed text-left">
-                        Gere o QR Code oficial do Banco Central via Mercado Pago. O pagamento é auditado em 3 segundos e seu pedido é aprovado na hora.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handlePayWithMercadoPago(true)}
-                        disabled={isProcessingPayment}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 px-4 font-black text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer flex items-center justify-center gap-2 shadow-xs mt-1"
-                      >
-                        <span>⚡</span>
-                        <span>{isProcessingPayment ? "Conectando ao Mercado Pago..." : `Pagar R$ ${finalTotal.toFixed(2).replace(".", ",")} com Pix Automático ➔`}</span>
-                      </button>
-                    </div>
-
-                    {/* Divisor */}
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-neutral-300"></div>
-                      <span className="shrink mx-4 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
-                        Ou transferência manual por Chave Pix
-                      </span>
-                      <div className="flex-grow border-t border-neutral-300"></div>
-                    </div>
-
-                    {/* Opção 2: Já transferiu pela chave manual */}
-                    <div className="flex flex-col gap-1.5 text-left">
-                      <p className="text-[11px] text-neutral-600">
-                        Transferiu pelo aplicativo do seu banco usando a chave acima? Clique abaixo para registrar o pedido e nos enviar o comprovante:
-                      </p>
-                      <button 
-                        type="button"
-                        onClick={handlePayWithPix}
-                        disabled={isProcessingPayment || isPixExpired}
-                        className={`w-full py-3.5 font-black text-xs uppercase tracking-wider transition-colors border rounded-xs cursor-pointer ${
-                          isPixExpired 
-                            ? "bg-neutral-200 text-neutral-400 border-neutral-300 cursor-not-allowed" 
-                            : "bg-white hover:bg-neutral-100 text-neutral-900 border-neutral-900 shadow-xs"
-                        }`}
-                      >
-                        {isProcessingPayment ? "Registrando pedido..." : "Já fiz o Pix pela Chave (Enviar Comprovante) 📄"}
-                      </button>
-                    </div>
+                    <span className="text-[10px] font-mono bg-neutral-200 text-neutral-700 px-2 py-0.5 rounded-xs">
+                      BACEN PJ
+                    </span>
                   </div>
 
                 </div>
@@ -1689,15 +1687,6 @@ export default function CheckoutFlow({
                         }}
                       />
                     </PayPalScriptProvider>
-
-                    <button 
-                      type="button"
-                      onClick={handlePayWithPayPal}
-                      disabled={isProcessingPayment}
-                      className="w-full bg-neutral-900 hover:bg-black text-white py-3.5 font-black text-xs uppercase tracking-wider transition-colors rounded-xs cursor-pointer mt-1"
-                    >
-                      {isProcessingPayment ? "Processando..." : "Confirmar Compra via PayPal ➔"}
-                    </button>
                   </div>
                 </div>
               )}
