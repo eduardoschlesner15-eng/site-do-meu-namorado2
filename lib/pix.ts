@@ -31,9 +31,9 @@ export function setStoredPixKey(key: string): void {
 }
 
 export const PIX_CONFIG = {
-  // Chave padrão ou configurada
-  chave: "",
-  chaveMascara: "••••••••-••••-••••-••••-••••••••••••",
+  // Chave Aleatória Oficial (EVP) do Mercado Pago cadastrada no Banco Central
+  chave: "733d53a1-c0a8-4958-a168-7c599a3a3ac6",
+  chaveMascara: "733d53a1-••••-••••-••••-7c599a3a3ac6",
   tipoChave: "CHAVE ALEATÓRIA MERCADO PAGO (EVP)",
   beneficiario: "MERCADO PAGO / LOJA",
   cidade: "SAO PAULO",
@@ -89,6 +89,7 @@ export function generatePixCopiaECola({
 
   const payloadSemCRC =
     emvField("00", "01") +
+    emvField("01", "11") +
     accountInfo +
     emvField("52", "0000") +
     emvField("53", "986") +
@@ -96,7 +97,7 @@ export function generatePixCopiaECola({
     emvField("58", "BR") +
     emvField("59", cleanName) +
     emvField("60", cleanCity) +
-    emvField("62", emvField("05", cleanTxid)) +
+    emvField("62", emvField("05", cleanTxid || "***")) +
     "6304";
 
   const checksum = crc16(payloadSemCRC);
