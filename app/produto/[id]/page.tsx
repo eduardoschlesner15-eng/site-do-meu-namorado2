@@ -41,8 +41,8 @@ export default async function ProductPage({ params }: Props) {
           <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight mb-2">
             {product.name}
           </h1>
-          <p className="text-2xl font-bold">R$ 10,00</p>
-          <p className="text-sm text-gray-500 mt-1">Em até 2x de R$ 5,00 sem juros</p>
+          <p className="text-2xl font-bold">R$ {product.price.toFixed(2).replace(".", ",")}</p>
+          <p className="text-sm text-gray-500 mt-1">Em até 2x de R$ {(product.price / 2).toFixed(2).replace(".", ",")} sem juros</p>
         </div>
         
         <div className="border-t border-b border-gray-200 py-6 my-2">
@@ -74,7 +74,7 @@ export default async function ProductPage({ params }: Props) {
             fileType: product.fileType,
             fileUrl: product.fileUrl,
             category: product.category,
-            price: 39.9,
+            price: product.price,
           }} 
         />
         

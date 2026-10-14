@@ -13,7 +13,7 @@ import {
   validateEmailStrict,
   fetchAddressByCEP,
 } from "@/lib/validation";
-import { getSavedUser, saveUser, saveOrder, UserProfile } from "@/lib/store";
+import { getSavedUser, saveUser, saveOrder, getCartItems, clearCart, UserProfile, CartItem } from "@/lib/store";
 import { createMercadoPagoPreference } from "@/lib/mercadopago";
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { 
@@ -161,8 +161,33 @@ export default function CheckoutFlow({
     }
   }, []);
 
+  // Itens do Pedido (sincronizados com o Carrinho/Sacola Lateral ou via Props)
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+  useEffect(() => {
+    const stored = getCartItems();
+    if (stored && stored.length > 0) {
+      setCartItems(stored);
+    } else {
+      setCartItems([
+        {
+          id: productSlug,
+          name: productName,
+          slug: productSlug,
+          price: parseFloat(price.replace(",", ".")) || 10,
+          quantity: 1,
+          fileType: fileType,
+          fileUrl: fileUrl || "/model.stl",
+          category: category,
+        },
+      ]);
+    }
+  }, [productSlug, productName, price, fileType, fileUrl, category]);
+
   // Cálculo de valores (Produtos Físicos com Frete Obrigatório)
-  const basePriceNum = parseFloat(price.replace(",", ".")) || 10;
+  const basePriceNum = cartItems.length > 0 
+    ? cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0)
+    : (parseFloat(price.replace(",", ".")) || 10);
   const shippingCost = shippingMethod === "sedex" ? 24.9 : 14.9;
   const pixDiscount = paymentMethod === "pix" ? basePriceNum * 0.05 : 0;
   const finalTotal = Math.max(0, basePriceNum + shippingCost - pixDiscount);
@@ -257,7 +282,12 @@ export default function CheckoutFlow({
           });
         }
       } else {
-        setErrors((prev) => ({ ...prev, cpf: "Informe um CPF completo com 11 dígitos." }));
+        // Limpa erro enquanto o usuário ainda está digitando os dígitos
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.cpf;
+          return next;
+        });
       }
     } else if (name === "telefone") {
       formattedVal = formatPhone(value);
@@ -271,6 +301,12 @@ export default function CheckoutFlow({
             return next;
           });
         }
+      } else {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.telefone;
+          return next;
+        });
       }
     } else if (name === "email") {
       const emailCheck = validateEmailStrict(value);
@@ -283,6 +319,24 @@ export default function CheckoutFlow({
           return next;
         });
       }
+    } else if (name === "nome" && value.trim().split(" ").length >= 2) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.nome;
+        return next;
+      });
+    } else if (["endereco", "numero", "bairro", "cidade"].includes(name) && value.trim().length > 0) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    } else if (name === "estado" && value.trim().length === 2) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.estado;
+        return next;
+      });
     } else if (name === "cep") {
       formattedVal = formatCEP(value);
       const clean = formattedVal.replace(/\D/g, "");
@@ -305,6 +359,10 @@ export default function CheckoutFlow({
           setErrors((prev) => {
             const next = { ...prev };
             delete next.cep;
+            delete next.endereco;
+            delete next.bairro;
+            delete next.cidade;
+            delete next.estado;
             return next;
           });
           setTimeout(() => document.querySelector<HTMLInputElement>('input[name="numero"]')?.focus(), 100);
@@ -363,13 +421,15 @@ export default function CheckoutFlow({
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
 
   const handleProceedToPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) {
-      const firstErrorKey = Object.keys(errors)[0];
+    const newErrors = validateForm();
+    const errorKeys = Object.keys(newErrors);
+    if (errorKeys.length > 0) {
+      const firstErrorKey = errorKeys[0];
       if (firstErrorKey) {
         document.querySelector<HTMLInputElement>(`input[name="${firstErrorKey}"]`)?.focus();
       }
@@ -469,9 +529,24 @@ export default function CheckoutFlow({
 
     setOrderStatus(finalStatus);
 
+    const finalItems: CartItem[] = cartItems.length > 0 ? cartItems : [
+      {
+        id: productSlug,
+        name: productName,
+        slug: productSlug,
+        price: basePriceNum,
+        quantity: 1,
+        fileType,
+        fileUrl: fileUrl || "/model.stl",
+        category,
+      },
+    ];
+
     const notificationPayload: OrderNotificationData = {
       id: generatedOrder,
-      productName,
+      productName: finalItems.length === 1 ? finalItems[0].name : `${finalItems.length} itens do pedido`,
+      items: finalItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+      quantity: finalItems.reduce((acc, i) => acc + i.quantity, 0),
       subtotal: basePriceNum,
       frete: shippingCost,
       total: finalTotal,
@@ -496,18 +571,7 @@ export default function CheckoutFlow({
     saveOrder({
       id: generatedOrder,
       createdAt: new Date().toLocaleDateString("pt-BR"),
-      items: [
-        {
-          id: productSlug,
-          name: productName,
-          slug: productSlug,
-          price: basePriceNum,
-          quantity: 1,
-          fileType,
-          fileUrl: fileUrl || "/model.stl",
-          category,
-        },
-      ],
+      items: finalItems,
       subtotal: basePriceNum,
       frete: shippingCost,
       total: finalTotal,
@@ -526,6 +590,9 @@ export default function CheckoutFlow({
       },
       status: finalStatus,
     });
+
+    // Limpa a sacola após pedido concluído
+    clearCart();
 
     setStep("success");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -567,9 +634,24 @@ export default function CheckoutFlow({
   if (step === "success") {
     const isPendingPix = orderStatus === "AGUARDANDO_PAGAMENTO";
 
+    const finalItems: CartItem[] = cartItems.length > 0 ? cartItems : [
+      {
+        id: productSlug,
+        name: productName,
+        slug: productSlug,
+        price: basePriceNum,
+        quantity: 1,
+        fileType,
+        fileUrl: fileUrl || "/model.stl",
+        category,
+      },
+    ];
+
     const notificationData: OrderNotificationData = {
       id: orderNumber || "ORD-RECENTE",
-      productName,
+      productName: finalItems.length === 1 ? finalItems[0].name : `${finalItems.length} itens do pedido`,
+      items: finalItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+      quantity: finalItems.reduce((acc, i) => acc + i.quantity, 0),
       subtotal: basePriceNum,
       frete: shippingCost,
       total: finalTotal,
@@ -779,7 +861,11 @@ export default function CheckoutFlow({
         <div className="w-full max-w-lg bg-white border border-neutral-200 p-5 text-xs text-left flex flex-col gap-2 rounded-xs">
           <div className="flex justify-between border-b border-neutral-100 pb-2">
             <span className="font-bold text-neutral-500 uppercase">Item Físico:</span>
-            <span className="font-black text-neutral-900">{productName}</span>
+            <span className="font-black text-neutral-900 text-right">
+              {cartItems.length > 0
+                ? cartItems.map((i) => `${i.name} (${i.quantity}x)`).join(", ")
+                : productName}
+            </span>
           </div>
           <div className="flex justify-between border-b border-neutral-100 pb-2">
             <span className="font-bold text-neutral-500 uppercase">Modalidade:</span>
@@ -1630,32 +1716,39 @@ export default function CheckoutFlow({
             </h3>
 
             {/* Linha do Produto */}
-            <div className="flex gap-3.5 items-start">
-              <div className="w-16 h-16 bg-neutral-100 border border-neutral-200 rounded-xs shrink-0 flex items-center justify-center relative overflow-hidden group">
-                <span className="text-xl">📦</span>
-                {fileUrl && (
-                  <button 
-                    type="button"
-                    onClick={() => setShow3DPreview(!show3DPreview)}
-                    className="absolute inset-0 bg-black/60 text-white text-[9px] font-black uppercase flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    3D 360°
-                  </button>
-                )}
-              </div>
+            {/* Lista dos Produtos no Resumo */}
+            <div className="flex flex-col gap-3">
+              {cartItems.map((item) => (
+                <div key={item.id} className="flex gap-3.5 items-start border-b border-neutral-100 pb-3 last:border-b-0 last:pb-0">
+                  <div className="w-14 h-14 bg-neutral-100 border border-neutral-200 rounded-xs shrink-0 flex items-center justify-center relative overflow-hidden group">
+                    <span className="text-xl">📦</span>
+                    {item.fileUrl && (
+                      <button 
+                        type="button"
+                        onClick={() => setShow3DPreview(!show3DPreview)}
+                        className="absolute inset-0 bg-black/60 text-white text-[8px] font-black uppercase flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      >
+                        3D
+                      </button>
+                    )}
+                  </div>
 
-              <div className="flex flex-col flex-1">
-                <span className="font-black text-xs uppercase tracking-tight text-black line-clamp-1">
-                  {productName}
-                </span>
-                <span className="text-[11px] text-neutral-500 font-medium">
-                  {category} • Peça Física
-                </span>
-                <div className="flex justify-between items-center mt-1 text-xs">
-                  <span className="text-neutral-500 text-[11px]">Qtd: 1</span>
-                  <span className="font-black text-black">R$ {basePriceNum.toFixed(2).replace(".", ",")}</span>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="font-black text-xs uppercase tracking-tight text-black line-clamp-1">
+                      {item.name}
+                    </span>
+                    <span className="text-[10px] text-neutral-500 font-medium">
+                      {item.category || "3D"} • Peça Física
+                    </span>
+                    <div className="flex justify-between items-center mt-1 text-xs">
+                      <span className="text-neutral-500 text-[11px] font-bold">Qtd: {item.quantity}</span>
+                      <span className="font-black text-black">
+                        R$ {(item.price * item.quantity).toFixed(2).replace(".", ",")}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
 
             {/* Preview 3D Expansível */}

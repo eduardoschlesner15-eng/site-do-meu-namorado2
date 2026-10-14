@@ -78,7 +78,7 @@ export default function CartDrawer() {
       id: "cigarreira-corta-tapa",
       name: "Cigarreira Corta Tapa 3D",
       slug: "cigarreira-corta-tapa",
-      price: 39.9,
+      price: 10.0,
       quantity: 1,
       fileType: "stl",
       fileUrl: "/model.stl",

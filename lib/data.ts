@@ -7,6 +7,7 @@ export type Product = {
   fileType: "stl" | "fbx";
   compat: string;
   slug: string; // url-friendly name
+  price: number;
 };
 
 export const products: Product[] = [
@@ -18,7 +19,8 @@ export const products: Product[] = [
     fileUrl: "/models/luminaria/n 1 light style.fbx",
     fileType: "fbx",
     compat: "FBX",
-    slug: "n-1-light-style"
+    slug: "n-1-light-style",
+    price: 10.0,
   },
   {
     id: "prod-002",
@@ -28,7 +30,8 @@ export const products: Product[] = [
     fileUrl: "/model.stl",
     fileType: "stl",
     compat: "STL / OBJ",
-    slug: "cigarreira-corta-tapa"
+    slug: "cigarreira-corta-tapa",
+    price: 10.0,
   }
 ];
 

@@ -31,6 +31,17 @@ export async function createMercadoPagoPreference(data: PreferenceData): Promise
       : "https://site-do-meu-nnamnorado.web.app";
     const slug = data.productSlug || "cigarreira-corta-tapa";
 
+    let cleanPhone = data.payer.telefone.replace(/\D/g, "");
+    if (cleanPhone.startsWith("55") && (cleanPhone.length === 12 || cleanPhone.length === 13)) {
+      cleanPhone = cleanPhone.slice(2);
+    }
+    const areaCode = cleanPhone.length >= 10 ? cleanPhone.slice(0, 2) : "55";
+    const phoneNumber = cleanPhone.length >= 10 ? cleanPhone.slice(2) : cleanPhone;
+
+    const nameParts = data.payer.nome.trim().split(" ");
+    const firstName = nameParts[0] || "Cliente";
+    const lastName = nameParts.slice(1).join(" ") || "Comprador";
+
     const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
       headers: {
@@ -47,10 +58,12 @@ export async function createMercadoPagoPreference(data: PreferenceData): Promise
           },
         ],
         payer: {
-          name: data.payer.nome,
+          name: firstName,
+          surname: lastName,
           email: data.payer.email,
           phone: {
-            number: data.payer.telefone.replace(/\D/g, ""),
+            area_code: areaCode,
+            number: phoneNumber,
           },
           identification: {
             type: "CPF",

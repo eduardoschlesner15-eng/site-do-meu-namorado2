@@ -43,7 +43,12 @@ export function isValidCPF(cpf: string): boolean {
 
 // Formata Celular brasileiro: (00) 00000-0000 ou (00) 0000-0000
 export function formatPhone(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
+  let digits = value.replace(/\D/g, "");
+  // Se o usuário colou com código do Brasil (+55), remove o 55 para não truncar
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2);
+  }
+  digits = digits.slice(0, 11);
   if (digits.length === 0) return "";
   if (digits.length <= 2) return `(${digits}`;
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
@@ -55,7 +60,10 @@ export function formatPhone(value: string): string {
 
 // Valida telefone com DDD brasileiro válido (11 a 99)
 export function isValidPhone(phone: string): boolean {
-  const digits = phone.replace(/\D/g, "");
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(2);
+  }
   if (digits.length !== 10 && digits.length !== 11) return false;
 
   const ddd = parseInt(digits.slice(0, 2));
@@ -132,17 +140,11 @@ const FAKE_USERNAMES = new Set([
   "123456",
   "12345",
   "123",
-  "abc",
   "naotem",
   "sememail",
   "nenhum",
-  "usuario",
-  "comprador",
-  "cliente",
   "exemplo",
   "example",
-  "admin",
-  "root",
   "null",
   "undefined",
   "nobody",

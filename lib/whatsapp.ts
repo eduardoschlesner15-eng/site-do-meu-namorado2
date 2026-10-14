@@ -10,6 +10,7 @@ export const STORE_WHATSAPP_NUMBER = "5555999576823";
 export type OrderNotificationData = {
   id: string;
   productName: string;
+  items?: { name: string; quantity: number; price: number }[];
   quantity?: number;
   subtotal: number;
   frete: number;
@@ -51,6 +52,10 @@ export function generateCustomerOrderMessage(data: OrderNotificationData): strin
   const firstName = data.user.nome.split(" ")[0] || "Cliente";
   const isPending = data.status === "AGUARDANDO_PAGAMENTO";
 
+  const itemsLines = data.items && data.items.length > 0
+    ? data.items.map((i) => `• *Produto:* ${i.name} (${i.quantity}x) - R$ ${(i.price * i.quantity).toFixed(2).replace(".", ",")}`).join("\n")
+    : `• *Produto:* ${data.productName} (${data.quantity || 1}x)`;
+
   if (isPending) {
     return `🕒 *A LOJA DO MEU NAMORADO - PEDIDO REGISTRADO!*
 
@@ -59,7 +64,7 @@ Olá, *${firstName}*! Recebemos o seu pedido #${data.id}.
 ⚠️ *STATUS: AGUARDANDO CONFIRMAÇÃO DO PIX*
 
 📋 *DETALHES DO PEDIDO:*
-• *Produto:* ${data.productName} (1x)
+${itemsLines}
 • *Subtotal:* R$ ${data.subtotal.toFixed(2).replace(".", ",")}
 • *Frete:* R$ ${data.frete.toFixed(2).replace(".", ",")} (${data.shippingMethod})
 • *VALOR DO PIX:* R$ ${data.total.toFixed(2).replace(".", ",")}
@@ -80,7 +85,7 @@ Se você já realizou o Pix pelo aplicativo do seu banco, por favor *responda a 
 Olá, *${firstName}*! O seu pagamento foi confirmado e o pedido #${data.id} foi aprovado com sucesso!
 
 📋 *DETALHES DO PEDIDO APROVADO:*
-• *Produto:* ${data.productName} (1x)
+${itemsLines}
 • *Subtotal:* R$ ${data.subtotal.toFixed(2).replace(".", ",")}
 • *Frete:* R$ ${data.frete.toFixed(2).replace(".", ",")} (${data.shippingMethod})
 • *TOTAL PAGO:* R$ ${data.total.toFixed(2).replace(".", ",")}
@@ -100,6 +105,10 @@ Seu produto já entrou na fila de separação e expedição física. Assim que f
  */
 export function generateSellerOrderMessage(data: OrderNotificationData): string {
   const isPending = data.status === "AGUARDANDO_PAGAMENTO";
+
+  const itemsLines = data.items && data.items.length > 0
+    ? data.items.map((i) => `• ${i.name} (${i.quantity}x) - R$ ${(i.price * i.quantity).toFixed(2).replace(".", ",")}`).join("\n")
+    : `• ${data.productName} (${data.quantity || 1}x)`;
 
   if (isPending) {
     return `⚠️ *NOVO PEDIDO REGISTRADO - PIX PENDENTE DE CONFERÊNCIA!* ⚠️
@@ -132,7 +141,7 @@ ${data.user.complemento ? `• *Complemento:* ${data.user.complemento}\n` : ""}�
 💰 *Total Pago e Confirmado:* R$ ${data.total.toFixed(2).replace(".", ",")} (${data.paymentMethod})
 
 🛒 *PRODUTO VENDIDO:*
-• *Item:* ${data.productName} (1 unidade)
+${itemsLines}
 • *Subtotal:* R$ ${data.subtotal.toFixed(2).replace(".", ",")}
 • *Frete:* R$ ${data.frete.toFixed(2).replace(".", ",")} (${data.shippingMethod})
 
